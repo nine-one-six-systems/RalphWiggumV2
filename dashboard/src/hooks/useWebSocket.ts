@@ -99,7 +99,10 @@ const DEFAULT_PRD_STATUS: PRDGeneratorStatus = {
   startedAt: null,
 };
 
-export function useWebSocket(url: string = 'ws://localhost:3001/ws'): UseWebSocketReturn {
+// Allow WebSocket port to be configured via environment variable for multi-instance support
+const DEFAULT_WS_PORT = import.meta.env.VITE_WS_PORT || '3001';
+
+export function useWebSocket(url: string = `ws://localhost:${DEFAULT_WS_PORT}/ws`): UseWebSocketReturn {
   const [connected, setConnected] = useState(false);
   const [loopStatus, setLoopStatus] = useState<LoopStatus>(DEFAULT_LOOP_STATUS);
   const [tasks, setTasks] = useState<TasksState>(DEFAULT_TASKS);
