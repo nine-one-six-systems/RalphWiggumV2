@@ -91,14 +91,23 @@ export class PlanGenerator extends EventEmitter {
         fullPrompt = fullPrompt.replace('${WORK_SCOPE}', options.workScope);
       }
 
-      // Spawn Claude CLI
-      this.process = spawn('claude', [
+      // Build CLI arguments - make --model conditional for cross-platform compatibility
+      const claudeArgs = [
         '-p',
         '--output-format=stream-json',
-        '--model', 'opus',
         '--verbose',
         '--dangerously-skip-permissions'
-      ], {
+      ];
+
+      // Add --model flag on Windows (confirmed working) or if explicitly enabled
+      // macOS may have older CLI versions that don't support this flag
+      const isWindows = process.platform === 'win32';
+      if (isWindows || process.env.CLAUDE_MODEL_FLAG === 'true') {
+        claudeArgs.push('--model', 'opus');
+      }
+
+      // Spawn Claude CLI
+      this.process = spawn('claude', claudeArgs, {
         cwd: this.projectPath,
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: true,  // Required for Windows to find claude.cmd

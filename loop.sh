@@ -121,6 +121,13 @@ if ! command -v claude &> /dev/null; then
     exit 1
 fi
 
+# Detect if --model flag is supported (Windows/MSYS or explicitly enabled)
+# macOS may have older CLI versions that don't support this flag
+MODEL_FLAG=""
+if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "mingw"* ]] || [[ "${CLAUDE_MODEL_FLAG:-}" == "true" ]]; then
+    MODEL_FLAG="--model opus"
+fi
+
 # Main loop
 while true; do
     if [ $MAX_ITERATIONS -gt 0 ] && [ $ITERATION -ge $MAX_ITERATIONS ]; then
@@ -152,7 +159,7 @@ while true; do
             envsubst < "$PROMPT_FILE_PATH" | claude -p \
                 --dangerously-skip-permissions \
                 --output-format=stream-json \
-                --model opus \
+                $MODEL_FLAG \
                 --verbose \
                 2>&1 | tee -a "$OUTPUT_LOG"
         else
@@ -160,7 +167,7 @@ while true; do
             sed "s|\${WORK_SCOPE}|$WORK_SCOPE|g" "$PROMPT_FILE_PATH" | claude -p \
                 --dangerously-skip-permissions \
                 --output-format=stream-json \
-                --model opus \
+                $MODEL_FLAG \
                 --verbose \
                 2>&1 | tee -a "$OUTPUT_LOG"
         fi
@@ -168,7 +175,7 @@ while true; do
         cat "$PROMPT_FILE_PATH" | claude -p \
             --dangerously-skip-permissions \
             --output-format=stream-json \
-            --model opus \
+            $MODEL_FLAG \
             --verbose \
             2>&1 | tee -a "$OUTPUT_LOG"
     fi
