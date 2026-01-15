@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import type { PlanGeneratorStatus } from '@/types';
 import {
   Wand2,
@@ -16,6 +17,7 @@ import {
   CheckCircle,
   AlertCircle,
   Trash2,
+  FileText,
 } from 'lucide-react';
 
 interface PlanGeneratorProps {
@@ -27,6 +29,7 @@ interface PlanGeneratorProps {
     goal: string;
     mode: 'plan' | 'plan-slc' | 'plan-work';
     workScope?: string;
+    usePrdContext?: boolean;
   }) => void;
   onCancelPlan: () => void;
   onInsertPlan: (content: string) => void;
@@ -63,6 +66,7 @@ export function PlanGenerator({
   const [goal, setGoal] = useState('');
   const [mode, setMode] = useState<PlanMode>('plan');
   const [workScope, setWorkScope] = useState('');
+  const [usePrdDocs, setUsePrdDocs] = useState(false);
 
   const handleGenerate = () => {
     if (!goal.trim()) return;
@@ -70,6 +74,7 @@ export function PlanGenerator({
       goal: goal.trim(),
       mode,
       workScope: mode === 'plan-work' ? workScope.trim() : undefined,
+      usePrdContext: usePrdDocs,
     });
   };
 
@@ -116,6 +121,28 @@ export function PlanGenerator({
             />
           </div>
 
+          {/* Use PRD Documents Toggle */}
+          <div className="flex items-start gap-3 rounded-lg border border-dashed p-3 bg-muted/30">
+            <Checkbox
+              id="usePrdDocs"
+              checked={usePrdDocs}
+              onCheckedChange={(checked) => setUsePrdDocs(checked === true)}
+              disabled={isGenerating}
+            />
+            <div className="space-y-1">
+              <label
+                htmlFor="usePrdDocs"
+                className="text-sm font-medium cursor-pointer flex items-center gap-2"
+              >
+                <FileText className="h-4 w-4" />
+                Use PRD Documents
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Include PRD.md and AUDIENCE_JTBD.md as context for plan generation
+              </p>
+            </div>
+          </div>
+
           {/* Mode Selection */}
           <div className="space-y-3">
             <Label>Planning Mode</Label>
@@ -158,7 +185,7 @@ export function PlanGenerator({
             {!isGenerating ? (
               <Button
                 onClick={handleGenerate}
-                disabled={!goal.trim() || (mode === 'plan-work' && !workScope.trim())}
+                disabled={(!goal.trim() && !usePrdDocs) || (mode === 'plan-work' && !workScope.trim())}
                 className="gap-2"
               >
                 <Play className="h-4 w-4" />

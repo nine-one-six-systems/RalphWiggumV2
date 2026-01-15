@@ -2,8 +2,27 @@ import { EventEmitter } from 'events';
 import fs from 'fs/promises';
 import path from 'path';
 
+// Subproject detected within a monorepo/multi-project structure
+export interface SubProject {
+  name: string;
+  path: string;
+  language: 'typescript' | 'javascript' | 'go' | 'python' | 'unknown';
+  framework: string | null;
+  packageManager: 'npm' | 'yarn' | 'pnpm' | 'bun' | null;
+}
+
+// Discovered markdown document for PRD context selection
+export interface DiscoveredDoc {
+  path: string;           // Relative path from project root
+  name: string;           // File basename
+  size: number;           // File size in bytes
+  directory: string;      // Parent directory (for grouping in UI)
+}
+
 export interface ProjectScan {
   projectName: string;
+  projectPath: string;
+  scanMode: 'embedded' | 'standalone';
   packageManager: 'npm' | 'yarn' | 'pnpm' | 'bun' | null;
   framework: string | null;
   language: 'typescript' | 'javascript' | 'python' | 'go' | 'mixed' | 'unknown';
@@ -19,6 +38,8 @@ export interface ProjectScan {
     name: string;
     size: number;
   }>;
+  // All discovered markdown files for PRD context selection
+  allMarkdownFiles: DiscoveredDoc[];
   hasRalphConfig: {
     agentsMd: boolean;
     claudeMd: boolean;
@@ -27,10 +48,14 @@ export interface ProjectScan {
     specsDir: boolean;
     cursorRules: boolean;
   };
+  hasRalphSubdirectory: boolean;
   structure: Array<{
     path: string;
     type: 'dir' | 'file';
   }>;
+  // Monorepo support
+  subprojects: SubProject[];
+  isMonorepo: boolean;
 }
 
 export class ProjectScanner extends EventEmitter {
@@ -46,32 +71,82 @@ export class ProjectScanner extends EventEmitter {
       packageManager,
       packageJson,
       existingDocs,
+      allMarkdownFiles,
       hasRalphConfig,
       structure,
       language,
+      hasRalphSubdirectory,
+      subprojects,
     ] = await Promise.all([
       this.detectPackageManager(),
       this.readPackageJson(),
       this.findExistingDocs(),
+      this.findAllMarkdownFiles(),
       this.checkRalphConfig(),
       this.scanStructure(),
       this.detectLanguage(),
+      this.checkRalphSubdirectory(),
+      this.scanSubprojects(),
     ]);
 
-    const framework = this.detectFramework(packageJson);
-    const detectedCommands = this.extractCommands(packageJson, packageManager);
-    const projectName = packageJson?.name || path.basename(this.projectPath);
+    // Determine if this is a monorepo (has subprojects but no root package.json)
+    const isMonorepo = subprojects.length > 0 && !packageJson;
+
+    // Get aggregated info from subprojects if monorepo
+    const aggregatedLanguage = isMonorepo
+      ? this.aggregateLanguages(subprojects)
+      : language;
+    const aggregatedFramework = isMonorepo
+      ? this.aggregateFrameworks(subprojects)
+      : this.detectFramework(packageJson);
+
+    // Project name: use directory name for monorepo, package.json name otherwise
+    const projectName = isMonorepo
+      ? path.basename(this.projectPath)
+      : (packageJson?.name as string) || path.basename(this.projectPath);
+
+    const detectedCommands = isMonorepo ? {} : this.extractCommands(packageJson, packageManager);
+
+    // Determine scan mode based on whether Ralph is a subdirectory
+    const scanMode: 'embedded' | 'standalone' = hasRalphSubdirectory ? 'embedded' : 'standalone';
 
     return {
       projectName,
-      packageManager,
-      framework,
-      language,
+      projectPath: this.projectPath,
+      scanMode,
+      packageManager: isMonorepo ? null : packageManager,
+      framework: aggregatedFramework,
+      language: aggregatedLanguage,
       detectedCommands,
       existingDocs,
+      allMarkdownFiles,
       hasRalphConfig,
+      hasRalphSubdirectory,
       structure,
+      subprojects,
+      isMonorepo,
     };
+  }
+
+  // Check if RalphWiggumV2 exists as a subdirectory
+  private async checkRalphSubdirectory(): Promise<boolean> {
+    const ralphDirNames = ['RalphWiggumV2', 'ralphwiggumv2', 'ralph-wiggum-v2'];
+
+    for (const dirName of ralphDirNames) {
+      try {
+        const dirPath = path.join(this.projectPath, dirName);
+        const stat = await fs.stat(dirPath);
+        if (stat.isDirectory()) {
+          // Verify it's actually Ralph by checking for loop.sh
+          await fs.access(path.join(dirPath, 'loop.sh'));
+          return true;
+        }
+      } catch {
+        // Directory doesn't exist or isn't Ralph, continue
+      }
+    }
+
+    return false;
   }
 
   private async detectPackageManager(): Promise<ProjectScan['packageManager']> {
@@ -283,6 +358,68 @@ export class ProjectScanner extends EventEmitter {
     return docs;
   }
 
+  // Find ALL markdown files recursively for PRD context selection
+  private async findAllMarkdownFiles(): Promise<DiscoveredDoc[]> {
+    const docs: DiscoveredDoc[] = [];
+    const ignoreDirs = new Set([
+      'node_modules',
+      '.git',
+      'dist',
+      'build',
+      '.next',
+      '.turbo',
+      '.vercel',
+      'coverage',
+      '__pycache__',
+      '.venv',
+      'venv',
+      'vendor',
+      // Ignore RalphWiggumV2 subdirectory when scanning parent project
+      'RalphWiggumV2',
+      'ralphwiggumv2',
+      'ralph-wiggum-v2',
+    ]);
+
+    const scanDir = async (dirPath: string, depth = 0): Promise<void> => {
+      if (depth > 4) return; // Limit recursion depth
+
+      try {
+        const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+        for (const entry of entries) {
+          if (ignoreDirs.has(entry.name)) continue;
+
+          const fullPath = path.join(dirPath, entry.name);
+          const relativePath = path.relative(this.projectPath, fullPath);
+
+          if (entry.isDirectory()) {
+            await scanDir(fullPath, depth + 1);
+          } else if (entry.name.endsWith('.md')) {
+            try {
+              const stat = await fs.stat(fullPath);
+              const directory = path.dirname(relativePath);
+              docs.push({
+                path: relativePath,
+                name: entry.name,
+                size: stat.size,
+                directory: directory === '.' ? 'Root' : directory,
+              });
+            } catch {
+              // Skip files we can't stat
+            }
+          }
+        }
+      } catch {
+        // Can't read directory, skip
+      }
+    };
+
+    await scanDir(this.projectPath);
+
+    // Sort by path for consistent ordering
+    return docs.sort((a, b) => a.path.localeCompare(b.path));
+  }
+
   private async checkRalphConfig(): Promise<ProjectScan['hasRalphConfig']> {
     const checks = {
       agentsMd: 'AGENTS.md',
@@ -346,6 +483,10 @@ export class ProjectScanner extends EventEmitter {
       '__pycache__',
       '.venv',
       'venv',
+      // Ignore RalphWiggumV2 subdirectory when scanning parent project
+      'RalphWiggumV2',
+      'ralphwiggumv2',
+      'ralph-wiggum-v2',
     ]);
 
     const scanDir = async (dirPath: string, depth = 0): Promise<void> => {
@@ -377,5 +518,202 @@ export class ProjectScanner extends EventEmitter {
 
     await scanDir(this.projectPath);
     return structure;
+  }
+
+  // Scan for subprojects in subdirectories (monorepo support)
+  private async scanSubprojects(): Promise<SubProject[]> {
+    const subprojects: SubProject[] = [];
+    const ignoreDirs = new Set([
+      'node_modules',
+      '.git',
+      '.next',
+      'dist',
+      'build',
+      '.turbo',
+      '.vercel',
+      'coverage',
+      '__pycache__',
+      '.venv',
+      'venv',
+      'RalphWiggumV2',
+      'ralphwiggumv2',
+      'ralph-wiggum-v2',
+      '.claude',
+      '.cursor',
+    ]);
+
+    try {
+      const entries = await fs.readdir(this.projectPath, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (ignoreDirs.has(entry.name)) continue;
+
+        const subPath = path.join(this.projectPath, entry.name);
+
+        // Check for nested projects (e.g., mod-troubleshooter/backend, mod-troubleshooter/frontend)
+        const nestedProjects = await this.scanNestedProjects(subPath, entry.name);
+        if (nestedProjects.length > 0) {
+          subprojects.push(...nestedProjects);
+          continue;
+        }
+
+        // Check for direct project at this level
+        const project = await this.detectProjectAt(subPath, entry.name);
+        if (project) {
+          subprojects.push(project);
+        }
+      }
+    } catch {
+      // Can't read directory
+    }
+
+    return subprojects;
+  }
+
+  // Scan for nested projects within a directory (e.g., project/backend, project/frontend)
+  private async scanNestedProjects(dirPath: string, parentName: string): Promise<SubProject[]> {
+    const nestedProjects: SubProject[] = [];
+    const ignoreDirs = new Set([
+      'node_modules', '.git', 'dist', 'build', '.next', 'coverage',
+    ]);
+
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (ignoreDirs.has(entry.name)) continue;
+
+        const nestedPath = path.join(dirPath, entry.name);
+        const project = await this.detectProjectAt(nestedPath, `${parentName}/${entry.name}`);
+        if (project) {
+          nestedProjects.push(project);
+        }
+      }
+    } catch {
+      // Can't read directory
+    }
+
+    return nestedProjects;
+  }
+
+  // Detect if a directory is a project and return its info
+  private async detectProjectAt(dirPath: string, relativePath: string): Promise<SubProject | null> {
+    // Check for package.json (Node.js/TypeScript)
+    try {
+      const pkgPath = path.join(dirPath, 'package.json');
+      const content = await fs.readFile(pkgPath, 'utf-8');
+      const pkg = JSON.parse(content);
+
+      // Detect language
+      let language: SubProject['language'] = 'javascript';
+      try {
+        await fs.access(path.join(dirPath, 'tsconfig.json'));
+        language = 'typescript';
+      } catch { /* not TypeScript */ }
+
+      return {
+        name: pkg.name || path.basename(relativePath),
+        path: relativePath,
+        language,
+        framework: this.detectFramework(pkg),
+        packageManager: await this.detectPackageManagerIn(dirPath),
+      };
+    } catch { /* not a Node project */ }
+
+    // Check for go.mod (Go)
+    try {
+      const goModPath = path.join(dirPath, 'go.mod');
+      const content = await fs.readFile(goModPath, 'utf-8');
+      // Extract module name from go.mod
+      const moduleMatch = content.match(/^module\s+(.+)$/m);
+      const moduleName = moduleMatch ? moduleMatch[1].trim() : path.basename(relativePath);
+
+      return {
+        name: moduleName,
+        path: relativePath,
+        language: 'go',
+        framework: null,
+        packageManager: null,
+      };
+    } catch { /* not a Go project */ }
+
+    // Check for pyproject.toml or requirements.txt (Python)
+    try {
+      await fs.access(path.join(dirPath, 'pyproject.toml'));
+      return {
+        name: path.basename(relativePath),
+        path: relativePath,
+        language: 'python',
+        framework: null,
+        packageManager: null,
+      };
+    } catch { /* not pyproject.toml */ }
+
+    try {
+      await fs.access(path.join(dirPath, 'requirements.txt'));
+      return {
+        name: path.basename(relativePath),
+        path: relativePath,
+        language: 'python',
+        framework: null,
+        packageManager: null,
+      };
+    } catch { /* not Python */ }
+
+    return null;
+  }
+
+  // Detect package manager in a specific directory
+  private async detectPackageManagerIn(dirPath: string): Promise<SubProject['packageManager']> {
+    const checks = [
+      { file: 'bun.lockb', manager: 'bun' as const },
+      { file: 'pnpm-lock.yaml', manager: 'pnpm' as const },
+      { file: 'yarn.lock', manager: 'yarn' as const },
+      { file: 'package-lock.json', manager: 'npm' as const },
+    ];
+
+    for (const check of checks) {
+      try {
+        await fs.access(path.join(dirPath, check.file));
+        return check.manager;
+      } catch {
+        // File doesn't exist, continue
+      }
+    }
+
+    // Default to npm if package.json exists
+    try {
+      await fs.access(path.join(dirPath, 'package.json'));
+      return 'npm';
+    } catch {
+      return null;
+    }
+  }
+
+  // Aggregate languages from subprojects
+  private aggregateLanguages(subprojects: SubProject[]): ProjectScan['language'] {
+    const languages = new Set(subprojects.map(s => s.language));
+    if (languages.size === 0) return 'unknown';
+    if (languages.size === 1) {
+      const lang = languages.values().next().value;
+      // Map SubProject language to ProjectScan language
+      if (lang === 'typescript' || lang === 'javascript' || lang === 'go' || lang === 'python') {
+        return lang;
+      }
+      return 'unknown';
+    }
+    return 'mixed';
+  }
+
+  // Aggregate frameworks from subprojects
+  private aggregateFrameworks(subprojects: SubProject[]): string | null {
+    const frameworks = subprojects
+      .map(s => s.framework)
+      .filter((f): f is string => f !== null);
+    if (frameworks.length === 0) return null;
+    if (frameworks.length === 1) return frameworks[0];
+    return frameworks.join(', ');
   }
 }

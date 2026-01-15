@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from '@/components/ui/progress';
-import type { ProjectScan } from '@/types';
+import type { ProjectScan, ProjectInfo } from '@/types';
 import {
   Search,
   Check,
@@ -21,10 +21,12 @@ import {
   Sparkles,
   FileCode,
   Settings,
+  ExternalLink,
 } from 'lucide-react';
 
 interface OnboardingWizardProps {
   projectScan: ProjectScan | null;
+  projectInfo: ProjectInfo | null;
   scanLoading: boolean;
   onScanProject: () => void;
   onSaveAgentsMd: (content: string) => void;
@@ -36,6 +38,7 @@ type WizardStep = 'welcome' | 'scanning' | 'results' | 'configure' | 'docs' | 'c
 
 export function OnboardingWizard({
   projectScan,
+  projectInfo,
   scanLoading,
   onScanProject,
   onSaveAgentsMd,
@@ -150,6 +153,23 @@ Language: ${language}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Show embedded mode info */}
+              {projectInfo && projectInfo.mode === 'embedded' && (
+                <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20 text-left">
+                  <div className="flex items-start gap-3">
+                    <ExternalLink className="h-5 w-5 text-green-600 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-green-700">Embedded Mode Detected</p>
+                      <p className="text-sm text-green-600/80 mt-1">
+                        Ralph will analyze your parent project:
+                      </p>
+                      <code className="text-xs bg-green-500/10 px-2 py-1 rounded mt-2 block truncate">
+                        {projectInfo.targetProjectPath}
+                      </code>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="text-left space-y-4 bg-muted/50 rounded-lg p-4">
                 <div className="flex items-start gap-3">
                   <Search className="h-5 w-5 text-muted-foreground mt-0.5" />
@@ -228,6 +248,19 @@ Language: ${language}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Project Path Info */}
+              {projectInfo && projectInfo.mode === 'embedded' && (
+                <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                  <div className="flex items-center gap-2 text-green-700">
+                    <ExternalLink className="h-4 w-4" />
+                    <span className="text-sm font-medium">Analyzing parent project</span>
+                  </div>
+                  <code className="text-xs text-green-600/80 mt-1 block truncate">
+                    {projectInfo.targetProjectPath}
+                  </code>
+                </div>
+              )}
+
               {/* Detected Info */}
               <div className="space-y-3">
                 <h3 className="font-semibold flex items-center gap-2">
@@ -265,6 +298,38 @@ Language: ${language}
                   </div>
                 </div>
               </div>
+
+              {/* Detected Subprojects (Monorepo) */}
+              {projectScan.isMonorepo && projectScan.subprojects.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="font-semibold flex items-center gap-2">
+                    <Folder className="h-4 w-4" />
+                    Detected Subprojects ({projectScan.subprojects.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {projectScan.subprojects.map((sub) => (
+                      <div
+                        key={sub.path}
+                        className="flex items-center gap-2 p-2 rounded-lg bg-muted/50"
+                      >
+                        <Badge variant="outline" className="capitalize">
+                          {sub.language}
+                        </Badge>
+                        <span className="font-medium">{sub.name}</span>
+                        <span className="text-xs text-muted-foreground">/{sub.path}</span>
+                        {sub.framework && (
+                          <Badge variant="secondary">{sub.framework}</Badge>
+                        )}
+                        {sub.packageManager && (
+                          <span className="text-xs text-muted-foreground ml-auto">
+                            {sub.packageManager}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Detected Commands */}
               {Object.values(projectScan.detectedCommands).some(Boolean) && (

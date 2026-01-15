@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, exec } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
 import readline from 'readline';
@@ -42,6 +42,7 @@ export class PlanGenerator extends EventEmitter {
     goal: string;
     mode: PlanMode;
     workScope?: string;
+    prdContext?: string;
   }): Promise<void> {
     if (this.status.generating) {
       throw new Error('Plan generation already in progress');
@@ -71,12 +72,18 @@ export class PlanGenerator extends EventEmitter {
         basePrompt = this.getDefaultPrompt(options.mode);
       }
 
+      // Build the full goal with optional PRD context
+      let fullGoal = options.goal;
+      if (options.prdContext) {
+        fullGoal = `${options.prdContext}\n\n## User Goal\n${options.goal}`;
+      }
+
       // Replace the goal placeholder or append the goal
       let fullPrompt: string;
       if (basePrompt.includes('[YOUR PROJECT GOAL HERE]')) {
-        fullPrompt = basePrompt.replace('[YOUR PROJECT GOAL HERE]', options.goal);
+        fullPrompt = basePrompt.replace('[YOUR PROJECT GOAL HERE]', fullGoal);
       } else {
-        fullPrompt = `${basePrompt}\n\nULTIMATE GOAL: ${options.goal}`;
+        fullPrompt = `${basePrompt}\n\nULTIMATE GOAL: ${fullGoal}`;
       }
 
       // For plan-work mode, also include the work scope
@@ -94,6 +101,7 @@ export class PlanGenerator extends EventEmitter {
       ], {
         cwd: this.projectPath,
         stdio: ['pipe', 'pipe', 'pipe'],
+        shell: true,  // Required for Windows to find claude.cmd
       });
 
       // Write prompt to stdin
@@ -200,7 +208,18 @@ export class PlanGenerator extends EventEmitter {
 
   cancel(): void {
     if (this.process) {
-      this.process.kill('SIGTERM');
+      const pid = this.process.pid;
+      const isWindows = process.platform === 'win32';
+
+      if (isWindows && pid) {
+        // On Windows, use taskkill to kill the process tree
+        exec(`taskkill /pid ${pid} /T /F`, () => {
+          // Ignore errors, process may already be dead
+        });
+      } else {
+        this.process.kill('SIGTERM');
+      }
+
       this.status = {
         generating: false,
         mode: null,

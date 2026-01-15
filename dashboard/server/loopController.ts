@@ -1,10 +1,30 @@
 import { EventEmitter } from 'events';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, exec } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 import type { LoopStatus, LoopMode, LogEntry } from '../src/types';
 
+// Find bash executable on Windows
+function findBashOnWindows(): string | null {
+  const possiblePaths = [
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+    'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+    'C:\\Git\\bin\\bash.exe',
+    process.env.PROGRAMFILES + '\\Git\\bin\\bash.exe',
+    process.env['PROGRAMFILES(X86)'] + '\\Git\\bin\\bash.exe',
+  ];
+  
+  for (const bashPath of possiblePaths) {
+    if (bashPath && fs.existsSync(bashPath)) {
+      return bashPath;
+    }
+  }
+  return null;
+}
+
 export class LoopController extends EventEmitter {
-  private projectPath: string;
+  private projectPath: string;  // Target project to run in
+  private ralphPath: string;    // RalphWiggumV2 directory (for loop.sh)
   private process: ChildProcess | null = null;
   private status: LoopStatus = {
     running: false,
@@ -13,9 +33,10 @@ export class LoopController extends EventEmitter {
     maxIterations: 0,
   };
 
-  constructor(projectPath: string) {
+  constructor(projectPath: string, ralphPath?: string) {
     super();
     this.projectPath = projectPath;
+    this.ralphPath = ralphPath || projectPath;
   }
 
   getStatus(): LoopStatus {
@@ -29,7 +50,8 @@ export class LoopController extends EventEmitter {
     }
 
     const { mode, maxIterations, workScope } = options;
-    const loopScript = path.join(this.projectPath, 'loop.sh');
+    // Use loop.sh from Ralph's directory, not the target project
+    const loopScript = path.join(this.ralphPath, 'loop.sh');
 
     // Build command arguments
     const args: string[] = [];
@@ -55,10 +77,35 @@ export class LoopController extends EventEmitter {
     }
 
     this.emitLog(`Starting loop: ${mode}${maxIterations ? ` (max ${maxIterations} iterations)` : ''}`, 'info');
+    if (this.ralphPath !== this.projectPath) {
+      this.emitLog(`Target project: ${this.projectPath}`, 'info');
+      this.emitLog(`Ralph directory: ${this.ralphPath}`, 'info');
+    }
 
-    this.process = spawn('bash', [loopScript, ...args], {
+    // Determine how to run bash on this platform
+    const isWindows = process.platform === 'win32';
+    let bashCmd = 'bash';
+    
+    if (isWindows) {
+      const gitBash = findBashOnWindows();
+      if (gitBash) {
+        bashCmd = gitBash;
+        this.emitLog(`Using Git Bash: ${gitBash}`, 'info');
+      } else {
+        this.emitLog('Error: Git Bash not found. Please install Git for Windows to run the loop.', 'error');
+        this.emitLog('Download from: https://git-scm.com/download/win', 'error');
+        return;
+      }
+    }
+
+    // Run in target project directory, but set RALPH_DIR so loop.sh can find its files
+    this.process = spawn(bashCmd, [loopScript, ...args], {
       cwd: this.projectPath,
-      env: { ...process.env, WORK_SCOPE: workScope || '' },
+      env: {
+        ...process.env,
+        WORK_SCOPE: workScope || '',
+        RALPH_DIR: this.ralphPath,  // Tell loop.sh where to find prompt files
+      },
     });
 
     this.status = {
@@ -126,18 +173,37 @@ export class LoopController extends EventEmitter {
       return;
     }
 
+    const pid = this.process.pid;
     this.emitLog('Stopping loop...', 'info');
 
-    // Send SIGINT for graceful shutdown
-    this.process.kill('SIGINT');
+    const isWindows = process.platform === 'win32';
 
-    // Force kill after 5 seconds if still running
-    setTimeout(() => {
-      if (this.process) {
-        this.emitLog('Force killing loop...', 'warning');
-        this.process.kill('SIGKILL');
-      }
-    }, 5000);
+    if (isWindows && pid) {
+      // On Windows, use taskkill to kill the process tree (includes child processes)
+      // This is more reliable than signals for Git Bash processes
+      exec(`taskkill /pid ${pid} /T /F`, (err: Error | null) => {
+        if (err) {
+          this.emitLog(`Failed to kill process tree: ${err.message}`, 'warning');
+          // Fallback to regular kill
+          if (this.process) {
+            this.process.kill();
+          }
+        } else {
+          this.emitLog('Process tree terminated', 'info');
+        }
+      });
+    } else {
+      // On Unix, send SIGINT for graceful shutdown
+      this.process.kill('SIGINT');
+
+      // Force kill after 5 seconds if still running
+      setTimeout(() => {
+        if (this.process) {
+          this.emitLog('Force killing loop...', 'warning');
+          this.process.kill('SIGKILL');
+        }
+      }, 5000);
+    }
   }
 
   private emitLog(content: string, type: LogEntry['type']) {

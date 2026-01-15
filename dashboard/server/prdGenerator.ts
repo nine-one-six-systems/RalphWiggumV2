@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, exec } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
 import readline from 'readline';
@@ -14,6 +14,8 @@ interface PRDGeneratorOptions {
   problemStatement: string;
   targetAudience: string;
   keyCapabilities: string[];
+  contextDocs?: string[];  // Array of relative paths to docs for context
+  docsOnly?: boolean;      // If true, generate PRD from docs only
 }
 
 export class PRDGenerator extends EventEmitter {
@@ -65,11 +67,39 @@ export class PRDGenerator extends EventEmitter {
         .map((cap, i) => `${i + 1}. ${cap}`)
         .join('\n');
 
-      let fullPrompt = basePrompt
-        .replace('${PRODUCT_NAME}', options.productName)
-        .replace('${PROBLEM_STATEMENT}', options.problemStatement)
-        .replace('${TARGET_AUDIENCE}', options.targetAudience)
-        .replace('${KEY_CAPABILITIES}', capabilitiesList);
+      // Build context section from selected docs
+      let contextSection = '';
+      if (options.contextDocs && options.contextDocs.length > 0) {
+        contextSection = '\n\n## Existing Documentation Context\n\nThe following existing documentation provides context for this project:\n\n';
+        for (const docPath of options.contextDocs) {
+          try {
+            const fullPath = path.join(this.projectPath, docPath);
+            const content = await fs.readFile(fullPath, 'utf-8');
+            // Truncate very large files to avoid prompt bloat
+            const truncatedContent = content.length > 10000
+              ? content.substring(0, 10000) + '\n\n[... truncated ...]'
+              : content;
+            contextSection += `### ${docPath}\n\`\`\`markdown\n${truncatedContent}\n\`\`\`\n\n`;
+          } catch (err) {
+            // Skip files that can't be read
+            this.emit('log', `Warning: Could not read context doc: ${docPath}`);
+          }
+        }
+      }
+
+      let fullPrompt: string;
+
+      // Use docs-only prompt if docsOnly mode is enabled
+      if (options.docsOnly && options.contextDocs && options.contextDocs.length > 0) {
+        fullPrompt = this.getDocsOnlyPrompt(contextSection);
+      } else {
+        fullPrompt = basePrompt
+          .replace('${PRODUCT_NAME}', options.productName)
+          .replace('${PROBLEM_STATEMENT}', options.problemStatement)
+          .replace('${TARGET_AUDIENCE}', options.targetAudience)
+          .replace('${KEY_CAPABILITIES}', capabilitiesList)
+          .replace('${CONTEXT_DOCS}', contextSection);
+      }
 
       // Spawn Claude CLI
       this.process = spawn('claude', [
@@ -81,6 +111,7 @@ export class PRDGenerator extends EventEmitter {
       ], {
         cwd: this.projectPath,
         stdio: ['pipe', 'pipe', 'pipe'],
+        shell: true,  // Required for Windows to find claude.cmd
       });
 
       // Write prompt to stdin
@@ -189,7 +220,18 @@ export class PRDGenerator extends EventEmitter {
 
   cancel(): void {
     if (this.process) {
-      this.process.kill('SIGTERM');
+      const pid = this.process.pid;
+      const isWindows = process.platform === 'win32';
+
+      if (isWindows && pid) {
+        // On Windows, use taskkill to kill the process tree
+        exec(`taskkill /pid ${pid} /T /F`, () => {
+          // Ignore errors, process may already be dead
+        });
+      } else {
+        this.process.kill('SIGTERM');
+      }
+
       this.status = {
         generating: false,
         startedAt: null,
@@ -209,10 +251,56 @@ export class PRDGenerator extends EventEmitter {
 - **Target Audience**: \${TARGET_AUDIENCE}
 - **Key Capabilities**:
 \${KEY_CAPABILITIES}
+\${CONTEXT_DOCS}
+---
+
+Generate two complete markdown documents based on the inputs above. If existing documentation context is provided, use it to inform and enhance the PRD with relevant details, architecture decisions, and existing patterns.
+
+NOTE: Do NOT include timeline, budget, or deadline constraints - not relevant for AI agent implementation.
+
+## Output Format
+
+===PRD_START===
+[Full PRD.md content]
+===PRD_END===
+
+===AUDIENCE_START===
+[Full AUDIENCE_JTBD.md content]
+===AUDIENCE_END===`;
+  }
+
+  private getDocsOnlyPrompt(contextSection: string): string {
+    return `You are a product requirements document generator for AI-agent-driven development projects.
+
+## Task
+
+Analyze the provided documentation and generate comprehensive PRD and Audience documents.
+
+**IMPORTANT**: Extract and infer the following from the documentation:
+- Product name (or suggest one based on the project's purpose)
+- Problem statement (what problem the project solves)
+- Target audience (who will use this)
+- Key capabilities and features
+
+${contextSection}
 
 ---
 
-Generate two complete markdown documents based on the inputs above.
+Based on your analysis of the documentation above, generate two complete markdown documents:
+
+1. **PRD.md** - A comprehensive Product Requirements Document including:
+   - Product overview and vision
+   - Problem statement (inferred from docs)
+   - Goals and objectives
+   - Scope and capabilities
+   - Technical requirements
+   - Success criteria
+
+2. **AUDIENCE_JTBD.md** - Target audience analysis with Jobs-to-be-Done framework:
+   - Primary user personas
+   - User needs and pain points
+   - Jobs users are trying to accomplish
+   - Expected outcomes
 
 NOTE: Do NOT include timeline, budget, or deadline constraints - not relevant for AI agent implementation.
 

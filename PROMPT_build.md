@@ -38,4 +38,14 @@
 
 999999999999999. IMPORTANT: Keep @AGENTS.md operational only — status updates and progress notes belong in `IMPLEMENTATION_PLAN.md`. A bloated AGENTS.md pollutes every future loop's context.
 
-9999999999999999. When all tasks in IMPLEMENTATION_PLAN.md are complete, output: `ALL_TASKS_COMPLETE` to signal the loop script to stop iterating.
+99999999999999999. Before outputting ALL_TASKS_COMPLETE, create or update `WORK_SUMMARY.md` with:
+- **Session Overview**: Date, iterations completed, mode used
+- **What Was Implemented**: List of features/fixes completed this session
+- **Key Decisions**: Important architectural or implementation choices made
+- **Issues Resolved**: Problems encountered and how they were fixed
+- **Remaining Work**: Any items deferred or discovered for future sessions
+- **Learnings**: Patterns, gotchas, or tips discovered about the codebase
+
+Keep it concise but informative — this serves as a handoff document for future sessions.
+
+999999999999999999. When all tasks in IMPLEMENTATION_PLAN.md are complete, output: `ALL_TASKS_COMPLETE` to signal the loop script to stop iterating.

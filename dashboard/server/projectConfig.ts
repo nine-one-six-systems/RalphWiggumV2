@@ -17,18 +17,22 @@ const CONFIG_FILES = {
 const ALL_AGENT_IDS = ['react-typescript-expert', 'accessibility-expert', 'qol-ux-expert'];
 
 export class ProjectConfigManager {
-  private projectPath: string;
+  private projectPath: string;  // Target project to analyze
+  private ralphPath: string;    // RalphWiggumV2's directory (for templates/prompts)
   private config: ProjectConfig;
   private enabledAgents: string[];
 
-  constructor(projectPath: string) {
+  constructor(projectPath: string, ralphPath?: string) {
     this.projectPath = projectPath;
+    this.ralphPath = ralphPath || projectPath;
     this.enabledAgents = [...ALL_AGENT_IDS];
     this.config = {
       projectPath,
       hasAgentsMd: false,
       hasClaudeMd: false,
       hasImplementationPlan: false,
+      hasPRD: false,
+      hasAudienceJTBD: false,
       hasSpecs: false,
       hasCursorRules: false,
       hasLoopSh: false,
@@ -37,15 +41,37 @@ export class ProjectConfigManager {
     this.refresh();
   }
 
+  // Get the path where Ralph config files should be stored/read
+  // In embedded mode, these go in the target project
+  getRalphConfigPath(): string {
+    return this.projectPath;
+  }
+
+  // Get the path to RalphWiggumV2's own directory (for templates)
+  getRalphTemplatePath(): string {
+    return this.ralphPath;
+  }
+
+  // Get the target project path being analyzed
+  getTargetProjectPath(): string {
+    return this.projectPath;
+  }
+
   async refresh() {
     const checks = await Promise.all([
       this.fileExists('AGENTS.md'),
-      this.fileExists('CLAUDE.md'),
       this.fileExists('IMPLEMENTATION_PLAN.md'),
+      this.fileExists('PRD.md'),
+      this.fileExists('AUDIENCE_JTBD.md'),
       this.dirExists('specs'),
       this.dirExists('.cursor/rules'),
       this.fileExists('loop.sh'),
     ]);
+
+    // Check for CLAUDE.md in both possible locations
+    const hasClaudeMdRoot = await this.fileExists('CLAUDE.md');
+    const hasClaudeMdDir = await this.fileExists('.claude/CLAUDE.md');
+    const hasClaudeMd = hasClaudeMdRoot || hasClaudeMdDir;
 
     // Parse enabled agents from CLAUDE.md
     this.enabledAgents = await this.parseEnabledAgents();
@@ -53,11 +79,13 @@ export class ProjectConfigManager {
     this.config = {
       projectPath: this.projectPath,
       hasAgentsMd: checks[0],
-      hasClaudeMd: checks[1],
-      hasImplementationPlan: checks[2],
-      hasSpecs: checks[3],
-      hasCursorRules: checks[4],
-      hasLoopSh: checks[5],
+      hasClaudeMd,
+      hasImplementationPlan: checks[1],
+      hasPRD: checks[2],
+      hasAudienceJTBD: checks[3],
+      hasSpecs: checks[4],
+      hasCursorRules: checks[5],
+      hasLoopSh: checks[6],
       enabledAgents: this.enabledAgents,
     };
 
@@ -135,7 +163,7 @@ export class ProjectConfigManager {
   // Parse CLAUDE.md to determine which agents are enabled
   private async parseEnabledAgents(): Promise<string[]> {
     try {
-      const content = await this.readFile('CLAUDE.md');
+      const content = await this.readClaudeMd();
       const enabled: string[] = [];
 
       for (const agentId of ALL_AGENT_IDS) {
@@ -154,6 +182,35 @@ export class ProjectConfigManager {
     } catch {
       // If CLAUDE.md doesn't exist, return all agents as enabled by default
       return [...ALL_AGENT_IDS];
+    }
+  }
+
+  // Read CLAUDE.md from either possible location
+  private async readClaudeMd(): Promise<string> {
+    // Try .claude/CLAUDE.md first (newer location)
+    try {
+      return await fs.readFile(path.join(this.projectPath, '.claude', 'CLAUDE.md'), 'utf-8');
+    } catch {
+      // Fall back to root CLAUDE.md
+      return await fs.readFile(path.join(this.projectPath, 'CLAUDE.md'), 'utf-8');
+    }
+  }
+
+  // Get CLAUDE.md path (whichever exists)
+  private async getClaudeMdPath(): Promise<string | null> {
+    const dirPath = path.join(this.projectPath, '.claude', 'CLAUDE.md');
+    const rootPath = path.join(this.projectPath, 'CLAUDE.md');
+
+    try {
+      await fs.access(dirPath);
+      return dirPath;
+    } catch {
+      try {
+        await fs.access(rootPath);
+        return rootPath;
+      } catch {
+        return null;
+      }
     }
   }
 
@@ -386,4 +443,90 @@ export class ProjectConfigManager {
 
     return this.listCursorRulesDetailed();
   }
+
+  // List CLAUDE.md files in parent project and Ralph directory
+  async listClaudeMdFiles(): Promise<ClaudeMdFile[]> {
+    const files: ClaudeMdFile[] = [];
+
+    // Helper to get file info
+    const getFileInfo = async (filePath: string, location: string): Promise<ClaudeMdFile | null> => {
+      try {
+        const content = await fs.readFile(filePath, 'utf-8');
+        const lines = content.split('\n').length;
+        return {
+          path: filePath,
+          location,
+          exists: true,
+          lineCount: lines,
+        };
+      } catch {
+        return {
+          path: filePath,
+          location,
+          exists: false,
+          lineCount: 0,
+        };
+      }
+    };
+
+    // Check parent project's CLAUDE.md locations
+    const parentClaudeDir = path.join(this.projectPath, '.claude', 'CLAUDE.md');
+    const parentClaudeRoot = path.join(this.projectPath, 'CLAUDE.md');
+
+    const parentDirInfo = await getFileInfo(parentClaudeDir, 'parent (.claude/CLAUDE.md)');
+    if (parentDirInfo) files.push(parentDirInfo);
+
+    const parentRootInfo = await getFileInfo(parentClaudeRoot, 'parent (CLAUDE.md)');
+    if (parentRootInfo) files.push(parentRootInfo);
+
+    // Check Ralph's own CLAUDE.md
+    const ralphClaudeRoot = path.join(this.ralphPath, 'CLAUDE.md');
+    const ralphInfo = await getFileInfo(ralphClaudeRoot, 'ralph (CLAUDE.md)');
+    if (ralphInfo) files.push(ralphInfo);
+
+    return files;
+  }
+
+  // Read a specific CLAUDE.md file by path
+  async readClaudeMdFile(filePath: string): Promise<string> {
+    // Security: only allow reading from known locations
+    const allowedPaths = [
+      path.join(this.projectPath, '.claude', 'CLAUDE.md'),
+      path.join(this.projectPath, 'CLAUDE.md'),
+      path.join(this.ralphPath, 'CLAUDE.md'),
+    ];
+
+    const normalizedPath = path.normalize(filePath);
+    if (!allowedPaths.includes(normalizedPath)) {
+      throw new Error('Invalid CLAUDE.md path');
+    }
+
+    return await fs.readFile(normalizedPath, 'utf-8');
+  }
+
+  // Apply Ralph's CLAUDE.md to the parent project
+  async applyRalphClaudeMd(): Promise<void> {
+    const ralphClaudePath = path.join(this.ralphPath, 'CLAUDE.md');
+    const targetPath = path.join(this.projectPath, '.claude', 'CLAUDE.md');
+
+    // Read Ralph's CLAUDE.md
+    const content = await fs.readFile(ralphClaudePath, 'utf-8');
+
+    // Ensure .claude directory exists
+    await fs.mkdir(path.join(this.projectPath, '.claude'), { recursive: true });
+
+    // Write to parent project
+    await fs.writeFile(targetPath, content, 'utf-8');
+
+    // Refresh config
+    await this.refresh();
+  }
+}
+
+// Type for CLAUDE.md file info
+export interface ClaudeMdFile {
+  path: string;
+  location: string;
+  exists: boolean;
+  lineCount: number;
 }

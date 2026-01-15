@@ -13,6 +13,11 @@ set -euo pipefail
 #   ./loop.sh plan-slc                      # SLC planning, unlimited
 #   ./loop.sh plan-work "user auth"         # Scoped planning for work branch
 
+# Support running from a different directory (embedded mode)
+# RALPH_DIR points to RalphWiggumV2's directory for prompt files
+# When not set, defaults to the script's own directory
+RALPH_DIR="${RALPH_DIR:-$(dirname "$0")}"
+
 # Parse arguments
 MODE="build"
 PROMPT_FILE="PROMPT_build.md"
@@ -91,12 +96,22 @@ else
     echo "Prompt: $PROMPT_FILE"
     echo "Plan:   IMPLEMENTATION_PLAN.md"
     [ $MAX_ITERATIONS -gt 0 ] && echo "Max:    $MAX_ITERATIONS iterations"
+    # Show embedded mode info if running from different directory
+    if [ "$RALPH_DIR" != "$(pwd)" ] && [ "$RALPH_DIR" != "." ]; then
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Embedded mode:"
+        echo "  Target: $(pwd)"
+        echo "  Ralph:  $RALPH_DIR"
+    fi
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 fi
 
+# Build full path to prompt file using RALPH_DIR
+PROMPT_FILE_PATH="$RALPH_DIR/$PROMPT_FILE"
+
 # Verify prompt file exists
-if [ ! -f "$PROMPT_FILE" ]; then
-    echo "Error: $PROMPT_FILE not found"
+if [ ! -f "$PROMPT_FILE_PATH" ]; then
+    echo "Error: $PROMPT_FILE_PATH not found"
     exit 1
 fi
 
@@ -134,7 +149,7 @@ while true; do
     # For plan-work mode, substitute ${WORK_SCOPE} in prompt before piping
     if [ "$MODE" = "plan-work" ]; then
         if command -v envsubst &> /dev/null; then
-            envsubst < "$PROMPT_FILE" | claude -p \
+            envsubst < "$PROMPT_FILE_PATH" | claude -p \
                 --dangerously-skip-permissions \
                 --output-format=stream-json \
                 --model opus \
@@ -142,7 +157,7 @@ while true; do
                 2>&1 | tee -a "$OUTPUT_LOG"
         else
             # Fallback: use sed if envsubst not available
-            sed "s|\${WORK_SCOPE}|$WORK_SCOPE|g" "$PROMPT_FILE" | claude -p \
+            sed "s|\${WORK_SCOPE}|$WORK_SCOPE|g" "$PROMPT_FILE_PATH" | claude -p \
                 --dangerously-skip-permissions \
                 --output-format=stream-json \
                 --model opus \
@@ -150,7 +165,7 @@ while true; do
                 2>&1 | tee -a "$OUTPUT_LOG"
         fi
     else
-        cat "$PROMPT_FILE" | claude -p \
+        cat "$PROMPT_FILE_PATH" | claude -p \
             --dangerously-skip-permissions \
             --output-format=stream-json \
             --model opus \

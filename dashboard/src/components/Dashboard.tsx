@@ -10,6 +10,7 @@ import { SetupWizard } from './setup/SetupWizard';
 import { OnboardingWizard } from './setup/OnboardingWizard';
 import { PlanGenerator } from './PlanGenerator';
 import { PRDGenerator } from './PRDGenerator';
+import { ExistingDocsViewer } from './ExistingDocsViewer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -43,10 +44,18 @@ export function Dashboard() {
     prdError,
     projectScan,
     scanLoading,
+    projectInfo,
     availableAgents,
     cursorRules,
     agentsLoading,
     rulesLoading,
+    selectedDocPaths,
+    previewDoc,
+    isLoadingPreview,
+    claudeMdFiles,
+    claudeMdContent,
+    claudeMdLoading,
+    claudeMdApplying,
     sendCommand,
     clearLogs,
     clearPlanOutput,
@@ -54,6 +63,20 @@ export function Dashboard() {
     scanProject,
     listAgents,
     listRules,
+    setSelectedDocPaths,
+    readDoc,
+    closeDocPreview,
+    listClaudeMdFiles,
+    readClaudeMdFile,
+    applyRalphClaudeMd,
+    closeClaudeMdPreview,
+    dependencyStatus,
+    dependencyLoading,
+    checkDependencies,
+    configPreviewDoc,
+    configPreviewLoading,
+    readConfigFile,
+    closeConfigPreview,
   } = useWebSocket();
 
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -68,6 +91,13 @@ export function Dashboard() {
       setShowOnboarding(needsOnboarding);
     }
   }, [projectConfig, onboardingComplete]);
+
+  // Trigger project scan when entering generate tab if not already scanned
+  useEffect(() => {
+    if (activeTab === 'generate' && !projectScan && !scanLoading && connected) {
+      scanProject();
+    }
+  }, [activeTab, projectScan, scanLoading, connected, scanProject]);
 
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
@@ -88,6 +118,7 @@ export function Dashboard() {
     return (
       <OnboardingWizard
         projectScan={projectScan}
+        projectInfo={projectInfo}
         scanLoading={scanLoading}
         onScanProject={scanProject}
         onSaveAgentsMd={handleSaveAgentsMd}
@@ -176,6 +207,19 @@ export function Dashboard() {
               onStop={() => sendCommand({ type: 'loop:stop' })}
             />
 
+            {/* Existing Documents */}
+            <ExistingDocsViewer
+              projectConfig={projectConfig}
+              onReadFile={readConfigFile}
+              onNavigateToGenerate={(tab) => {
+                setActiveTab('generate');
+                // The inner tabs will default to the right one based on the tab parameter
+              }}
+              previewDoc={configPreviewDoc}
+              isLoadingPreview={configPreviewLoading}
+              onClosePreview={closeConfigPreview}
+            />
+
             {/* Status Grid */}
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {/* Loop Status */}
@@ -241,6 +285,13 @@ export function Dashboard() {
                   prdOutput={prdOutput}
                   prdComplete={prdComplete}
                   prdError={prdError}
+                  discoveredDocs={projectScan?.allMarkdownFiles || []}
+                  selectedDocPaths={selectedDocPaths}
+                  onDocSelectionChange={setSelectedDocPaths}
+                  onPreviewDoc={readDoc}
+                  previewDoc={previewDoc}
+                  isLoadingPreview={isLoadingPreview}
+                  onClosePreview={closeDocPreview}
                   onGeneratePRD={(options) =>
                     sendCommand({ type: 'prd:generate', payload: options })
                   }
@@ -275,6 +326,12 @@ export function Dashboard() {
               cursorRules={cursorRules}
               agentsLoading={agentsLoading}
               rulesLoading={rulesLoading}
+              gitStatus={gitStatus}
+              projectInfo={projectInfo}
+              claudeMdFiles={claudeMdFiles}
+              claudeMdContent={claudeMdContent}
+              claudeMdLoading={claudeMdLoading}
+              claudeMdApplying={claudeMdApplying}
               onReadFile={(file) => sendCommand({ type: 'config:read', payload: { file } })}
               onWriteFile={(file, content) =>
                 sendCommand({ type: 'config:write', payload: { file, content } })
@@ -287,7 +344,14 @@ export function Dashboard() {
               onToggleRule={(ruleId, enabled) =>
                 sendCommand({ type: 'rules:toggle', payload: { ruleId, enabled } })
               }
+              onListClaudeMdFiles={listClaudeMdFiles}
+              onReadClaudeMdFile={readClaudeMdFile}
+              onApplyRalphClaudeMd={applyRalphClaudeMd}
+              onCloseClaudeMdPreview={closeClaudeMdPreview}
               onRunWizard={handleRunWizard}
+              dependencyStatus={dependencyStatus}
+              dependencyLoading={dependencyLoading}
+              onCheckDependencies={checkDependencies}
             />
           </TabsContent>
         </Tabs>

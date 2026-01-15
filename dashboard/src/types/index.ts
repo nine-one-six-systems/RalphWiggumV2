@@ -52,6 +52,8 @@ export interface ProjectConfig {
   hasAgentsMd: boolean;
   hasClaudeMd: boolean;
   hasImplementationPlan: boolean;
+  hasPRD: boolean;
+  hasAudienceJTBD: boolean;
   hasSpecs: boolean;
   hasCursorRules: boolean;
   hasLoopSh: boolean;
@@ -213,6 +215,17 @@ export interface PRDErrorMessage extends WSMessage {
   payload: { error: string };
 }
 
+// Document content messages (for PRD context)
+export interface DocsContentMessage extends WSMessage {
+  type: 'docs:content';
+  payload: { path: string; content: string };
+}
+
+export interface DocsErrorMessage extends WSMessage {
+  type: 'docs:error';
+  payload: { error: string };
+}
+
 export type ServerMessage =
   | LoopStatusMessage
   | LogMessage
@@ -232,7 +245,16 @@ export type ServerMessage =
   | PRDOutputMessage
   | PRDCompleteMessage
   | PRDErrorMessage
-  | ProjectScanMessage;
+  | DocsContentMessage
+  | DocsErrorMessage
+  | ProjectScanMessage
+  | ProjectInfoMessage
+  | ClaudeMdListResultMessage
+  | ClaudeMdContentMessage
+  | ClaudeMdAppliedMessage
+  | ClaudeMdErrorMessage
+  | DependenciesResultMessage
+  | DependenciesErrorMessage;
 
 // Client commands
 export interface StartLoopCommand {
@@ -277,6 +299,7 @@ export interface GeneratePlanCommand {
     goal: string;
     mode: 'plan' | 'plan-slc' | 'plan-work';
     workScope?: string;
+    usePrdContext?: boolean;  // Include PRD.md and AUDIENCE_JTBD.md as context
   };
 }
 
@@ -295,6 +318,8 @@ export interface GeneratePRDCommand {
     problemStatement: string;
     targetAudience: string;
     keyCapabilities: string[];
+    contextDocs?: string[];  // Optional array of doc paths to include as context
+    docsOnly?: boolean;      // If true, generate PRD from docs only without form fields
   };
 }
 
@@ -302,9 +327,49 @@ export interface CancelPRDCommand {
   type: 'prd:cancel';
 }
 
+// Document reading command
+export interface ReadDocCommand {
+  type: 'docs:read';
+  payload: {
+    docPath: string;
+  };
+}
+
+// Project info (from project root detector)
+export interface ProjectInfo {
+  targetProjectPath: string;
+  ralphPath: string;
+  mode: 'embedded' | 'standalone';
+  detectionReason: string;
+}
+
+export interface ProjectInfoMessage extends WSMessage {
+  type: 'project:info';
+  payload: ProjectInfo;
+}
+
+// Subproject detected within a monorepo/multi-project structure
+export interface SubProject {
+  name: string;
+  path: string;
+  language: 'typescript' | 'javascript' | 'go' | 'python' | 'unknown';
+  framework: string | null;
+  packageManager: 'npm' | 'yarn' | 'pnpm' | 'bun' | null;
+}
+
+// Discovered markdown document for PRD context selection
+export interface DiscoveredDoc {
+  path: string;           // Relative path from project root
+  name: string;           // File basename
+  size: number;           // File size in bytes
+  directory: string;      // Parent directory (for grouping in UI)
+}
+
 // Project scanning types
 export interface ProjectScan {
   projectName: string;
+  projectPath: string;
+  scanMode: 'embedded' | 'standalone';
   packageManager: 'npm' | 'yarn' | 'pnpm' | 'bun' | null;
   framework: string | null;
   language: 'typescript' | 'javascript' | 'python' | 'go' | 'mixed' | 'unknown';
@@ -320,6 +385,8 @@ export interface ProjectScan {
     name: string;
     size: number;
   }>;
+  // All discovered markdown files for PRD context selection
+  allMarkdownFiles: DiscoveredDoc[];
   hasRalphConfig: {
     agentsMd: boolean;
     claudeMd: boolean;
@@ -328,10 +395,13 @@ export interface ProjectScan {
     specsDir: boolean;
     cursorRules: boolean;
   };
+  hasRalphSubdirectory: boolean;
   structure: Array<{
     path: string;
     type: 'dir' | 'file';
   }>;
+  subprojects: SubProject[];
+  isMonorepo: boolean;
 }
 
 export interface ProjectScanMessage extends WSMessage {
@@ -378,6 +448,83 @@ export interface ToggleRuleCommand {
   };
 }
 
+// CLAUDE.md file info
+export interface ClaudeMdFile {
+  path: string;
+  location: string;
+  exists: boolean;
+  lineCount: number;
+}
+
+// CLAUDE.md commands
+export interface ListClaudeMdCommand {
+  type: 'claude:list';
+}
+
+export interface ReadClaudeMdCommand {
+  type: 'claude:read';
+  payload: {
+    path: string;
+  };
+}
+
+export interface ApplyClaudeMdCommand {
+  type: 'claude:apply';
+}
+
+// CLAUDE.md messages
+export interface ClaudeMdListResultMessage extends WSMessage {
+  type: 'claude:list-result';
+  payload: ClaudeMdFile[];
+}
+
+export interface ClaudeMdContentMessage extends WSMessage {
+  type: 'claude:content';
+  payload: {
+    path: string;
+    content: string;
+  };
+}
+
+export interface ClaudeMdAppliedMessage extends WSMessage {
+  type: 'claude:applied';
+}
+
+export interface ClaudeMdErrorMessage extends WSMessage {
+  type: 'claude:error';
+  payload: {
+    error: string;
+  };
+}
+
+// Dependency check result
+export interface DependencyCheckResult {
+  id: string;
+  name: string;
+  available: boolean;
+  version?: string;
+  path?: string;
+  error?: string;
+}
+
+// Dependency check commands
+export interface CheckDependenciesCommand {
+  type: 'dependencies:check';
+}
+
+// Dependency check messages
+export interface DependenciesResultMessage extends WSMessage {
+  type: 'dependencies:result';
+  payload: DependencyCheckResult[];
+}
+
+export interface DependenciesErrorMessage extends WSMessage {
+  type: 'dependencies:error';
+  payload: {
+    error: string;
+  };
+}
+
 export type ClientCommand =
   | StartLoopCommand
   | StopLoopCommand
@@ -392,4 +539,9 @@ export type ClientCommand =
   | ClearPlanOutputCommand
   | GeneratePRDCommand
   | CancelPRDCommand
-  | ScanProjectCommand;
+  | ReadDocCommand
+  | ScanProjectCommand
+  | ListClaudeMdCommand
+  | ReadClaudeMdCommand
+  | ApplyClaudeMdCommand
+  | CheckDependenciesCommand;
