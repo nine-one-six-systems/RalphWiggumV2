@@ -11,6 +11,8 @@ export class FileWatcher extends EventEmitter {
   private logWatcher: chokidar.FSWatcher | null = null;
   private prdWatcher: chokidar.FSWatcher | null = null;
   private audienceWatcher: chokidar.FSWatcher | null = null;
+  private progressWatcher: chokidar.FSWatcher | null = null;
+  private tasksJsonWatcher: chokidar.FSWatcher | null = null;
   private tasks: TasksState = { tasks: [], completed: 0, total: 0 };
   private gitStatus: GitStatus = { branch: 'main', uncommittedCount: 0, commits: [] };
   private lastLogPosition = 0;
@@ -61,6 +63,26 @@ export class FileWatcher extends EventEmitter {
     this.audienceWatcher.on('add', () => this.emit('config:refresh'));
     this.audienceWatcher.on('change', () => this.emit('config:refresh'));
 
+    // Watch progress.txt for learnings
+    const progressPath = path.join(this.projectPath, 'progress.txt');
+    this.progressWatcher = chokidar.watch(progressPath, {
+      persistent: true,
+      ignoreInitial: false,
+    });
+
+    this.progressWatcher.on('add', () => this.emitProgress());
+    this.progressWatcher.on('change', () => this.emitProgress());
+
+    // Watch tasks.json for structured task status
+    const tasksJsonPath = path.join(this.projectPath, 'tasks.json');
+    this.tasksJsonWatcher = chokidar.watch(tasksJsonPath, {
+      persistent: true,
+      ignoreInitial: false,
+    });
+
+    this.tasksJsonWatcher.on('add', () => this.emitTasksJson());
+    this.tasksJsonWatcher.on('change', () => this.emitTasksJson());
+
     // Initial git status and periodic refresh
     this.updateGitStatus();
     setInterval(() => this.updateGitStatus(), 10000);
@@ -71,6 +93,8 @@ export class FileWatcher extends EventEmitter {
     this.logWatcher?.close();
     this.prdWatcher?.close();
     this.audienceWatcher?.close();
+    this.progressWatcher?.close();
+    this.tasksJsonWatcher?.close();
   }
 
   getTasks(): TasksState {
@@ -264,6 +288,27 @@ export class FileWatcher extends EventEmitter {
       this.emit('git', this.gitStatus);
     } catch {
       // Git not initialized or error, keep default status
+    }
+  }
+
+  private async emitProgress() {
+    try {
+      const progressPath = path.join(this.projectPath, 'progress.txt');
+      const content = await fs.readFile(progressPath, 'utf-8');
+      this.emit('progress', { content, lastUpdated: new Date() });
+    } catch {
+      // File doesn't exist yet, that's OK
+    }
+  }
+
+  private async emitTasksJson() {
+    try {
+      const tasksJsonPath = path.join(this.projectPath, 'tasks.json');
+      const content = await fs.readFile(tasksJsonPath, 'utf-8');
+      const tasksData = JSON.parse(content);
+      this.emit('tasks:json', tasksData);
+    } catch {
+      // File doesn't exist or invalid JSON, that's OK
     }
   }
 }

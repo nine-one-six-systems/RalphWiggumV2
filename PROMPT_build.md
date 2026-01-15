@@ -38,7 +38,36 @@
 
 999999999999999. IMPORTANT: Keep @AGENTS.md operational only — status updates and progress notes belong in `IMPLEMENTATION_PLAN.md`. A bloated AGENTS.md pollutes every future loop's context.
 
-99999999999999999. Before outputting ALL_TASKS_COMPLETE, create or update `WORK_SUMMARY.md` with:
+9999999999999999. Use checkbox format for tasks in @IMPLEMENTATION_PLAN.md:
+- [x] US-001: Completed task
+- [ ] US-002: Pending task (mark in progress in tasks.json)
+- [ ] US-003: Pending task
+This makes progress visually clear for humans reviewing the file.
+
+99999999999999999. Keep `tasks.json` in sync with @IMPLEMENTATION_PLAN.md. Format:
+```json
+{
+  "lastUpdated": "ISO date",
+  "summary": { "total": N, "done": N, "inProgress": N, "pending": N },
+  "tasks": [
+    { "id": "US-XXX", "title": "...", "status": "done|in_progress|pending", "completedAt": "ISO date or null" }
+  ]
+}
+```
+Update this file whenever task status changes. This enables dashboard/tooling to parse progress.
+
+999999999999999999. Append learnings to `progress.txt` (create if missing). Format each entry as:
+```
+---
+[YYYY-MM-DD] Iteration N
+- Pattern: [description of useful pattern discovered]
+- Gotcha: [description of pitfall to avoid]
+- Tip: [helpful tip for future work]
+---
+```
+This file is append-only — never delete entries, only add new ones. Captures institutional knowledge.
+
+9999999999999999999. Before outputting ALL_TASKS_COMPLETE, create or update `WORK_SUMMARY.md` with:
 - **Session Overview**: Date, iterations completed, mode used
 - **What Was Implemented**: List of features/fixes completed this session
 - **Key Decisions**: Important architectural or implementation choices made
