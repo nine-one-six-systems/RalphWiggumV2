@@ -64,15 +64,71 @@ export class FileWatcher extends EventEmitter {
 
       const tasks: Task[] = [];
       const lines = content.split('\n');
+      const seenUserStories = new Set<string>();
 
       lines.forEach((line, index) => {
-        // Match checkbox patterns: - [ ] or - [x]
-        const match = line.match(/^-\s*\[([ xX])\]\s*(.+)$/);
-        if (match) {
+        // Pattern 1: Markdown checkboxes - [ ] or - [x]
+        const checkboxMatch = line.match(/^-\s*\[([ xX])\]\s*(.+)$/);
+        if (checkboxMatch) {
           tasks.push({
             id: `task-${index}`,
-            content: match[2].trim(),
-            completed: match[1].toLowerCase() === 'x',
+            content: checkboxMatch[2].trim(),
+            completed: checkboxMatch[1].toLowerCase() === 'x',
+          });
+          return;
+        }
+
+        // Pattern 2: User Stories (US-XXX format)
+        // Matches: "US-035", "| US-035 |", "- US-035:", etc.
+        const usMatch = line.match(/US-(\d+)/);
+        if (usMatch) {
+          const usId = usMatch[1];
+          // Avoid duplicates (same US mentioned multiple times)
+          if (seenUserStories.has(usId)) return;
+          seenUserStories.add(usId);
+
+          // Check for completion markers
+          const isComplete = /✅|DONE|COMPLETE|completed/i.test(line);
+
+          // Extract description: everything after "US-XXX" up to status marker or end
+          let description = line
+            .replace(/^[|\s-]*/, '') // Remove leading pipes, spaces, dashes
+            .replace(/US-\d+[:\s|]*/i, '') // Remove the US-XXX part
+            .replace(/[|].*$/, '') // Remove everything after pipe (table cell)
+            .replace(/✅|⬜|🔲|DONE|TODO|COMPLETE|PENDING/gi, '') // Remove status markers
+            .trim();
+
+          // If description is too short, use a generic one
+          if (description.length < 3) {
+            description = `User Story ${usId}`;
+          }
+
+          tasks.push({
+            id: `us-${usId}`,
+            content: `US-${usId}: ${description}`,
+            completed: isComplete,
+          });
+          return;
+        }
+
+        // Pattern 3: Numbered checkboxes - 1. [ ] or 1. [x]
+        const numberedMatch = line.match(/^\d+\.\s*\[([ xX])\]\s*(.+)$/);
+        if (numberedMatch) {
+          tasks.push({
+            id: `task-${index}`,
+            content: numberedMatch[2].trim(),
+            completed: numberedMatch[1].toLowerCase() === 'x',
+          });
+          return;
+        }
+
+        // Pattern 4: Emoji status markers at start of line
+        const emojiMatch = line.match(/^[-*]\s*(✅|⬜|🔲)\s*(.+)$/);
+        if (emojiMatch) {
+          tasks.push({
+            id: `task-${index}`,
+            content: emojiMatch[2].trim(),
+            completed: emojiMatch[1] === '✅',
           });
         }
       });
