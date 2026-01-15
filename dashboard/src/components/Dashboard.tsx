@@ -21,6 +21,7 @@ import {
   Wand2,
   FileText,
   ListTodo,
+  Github,
 } from 'lucide-react';
 
 export function Dashboard() {
@@ -77,6 +78,11 @@ export function Dashboard() {
     sendCommand({ type: 'config:write', payload: { file: 'AGENTS.md', content } });
   };
 
+  const handleRunWizard = () => {
+    setOnboardingComplete(false);
+    setShowOnboarding(true);
+  };
+
   // Show onboarding wizard if needed
   if (showOnboarding) {
     return (
@@ -108,6 +114,17 @@ export function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            {gitStatus.repoName && (
+              <a
+                href={`https://github.com/${gitStatus.repoName}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Github className="h-4 w-4" />
+                {gitStatus.repoName}
+              </a>
+            )}
             <Badge variant={connected ? 'success' : 'destructive'} className="gap-1">
               {connected ? (
                 <>
@@ -270,6 +287,7 @@ export function Dashboard() {
               onToggleRule={(ruleId, enabled) =>
                 sendCommand({ type: 'rules:toggle', payload: { ruleId, enabled } })
               }
+              onRunWizard={handleRunWizard}
             />
           </TabsContent>
         </Tabs>

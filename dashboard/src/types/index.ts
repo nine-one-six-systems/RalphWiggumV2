@@ -36,6 +36,8 @@ export interface GitStatus {
   uncommittedCount: number;
   commits: GitCommit[];
   lastUpdated?: Date;
+  remoteUrl?: string;
+  repoName?: string;
 }
 
 export interface LogEntry {

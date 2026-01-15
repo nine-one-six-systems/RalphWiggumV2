@@ -15,6 +15,7 @@ import {
   FileText,
   CheckCircle,
   AlertCircle,
+  Sparkles,
 } from 'lucide-react';
 
 interface SetupWizardProps {
@@ -30,6 +31,7 @@ interface SetupWizardProps {
   onListAgents: () => void;
   onListRules: () => void;
   onToggleRule: (ruleId: string, enabled: boolean) => void;
+  onRunWizard?: () => void;
 }
 
 export function SetupWizard({
@@ -44,6 +46,7 @@ export function SetupWizard({
   onListAgents,
   onListRules,
   onToggleRule,
+  onRunWizard,
 }: SetupWizardProps) {
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -133,6 +136,18 @@ export function SetupWizard({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {onRunWizard && (
+                <div className="rounded-lg border border-dashed p-4 text-center">
+                  <p className="text-sm text-muted-foreground mb-3">
+                    New to this project? Run the guided setup wizard to scan and configure automatically.
+                  </p>
+                  <Button onClick={onRunWizard} className="gap-2">
+                    <Sparkles className="h-4 w-4" />
+                    Run Setup Wizard
+                  </Button>
+                </div>
+              )}
+
               <div className="space-y-4">
                 <h3 className="font-semibold">1. Configure Build Commands</h3>
                 <p className="text-sm text-muted-foreground">

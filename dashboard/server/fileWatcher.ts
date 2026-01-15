@@ -159,11 +159,26 @@ export class FileWatcher extends EventEmitter {
         date: new Date(commit.date),
       }));
 
+      // Get remote URL
+      const remotes = await git.getRemotes(true);
+      const origin = remotes.find((r) => r.name === 'origin');
+      const remoteUrl = origin?.refs?.fetch || origin?.refs?.push;
+
+      // Parse GitHub URL to get repo name
+      let repoName: string | undefined;
+      if (remoteUrl) {
+        // Handle SSH (git@github.com:user/repo.git) and HTTPS (https://github.com/user/repo.git)
+        const match = remoteUrl.match(/github\.com[:/](.+?)(?:\.git)?$/);
+        repoName = match?.[1];
+      }
+
       this.gitStatus = {
         branch,
         uncommittedCount,
         commits,
         lastUpdated: new Date(),
+        remoteUrl,
+        repoName,
       };
 
       this.emit('git', this.gitStatus);
