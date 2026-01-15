@@ -6,7 +6,7 @@ import { AgentsConfig } from './AgentsConfig';
 import { SpecialistAgentsConfig } from './SpecialistAgentsConfig';
 import { CursorRulesConfig } from './CursorRulesConfig';
 import { PromptsConfig } from './PromptsConfig';
-import type { ProjectConfig } from '@/types';
+import type { ProjectConfig, AgentInfo, CursorRuleInfo } from '@/types';
 import {
   Settings,
   FileCode,
@@ -20,12 +20,31 @@ import {
 interface SetupWizardProps {
   projectConfig: ProjectConfig | null;
   enabledAgents: string[];
+  availableAgents: AgentInfo[];
+  cursorRules: CursorRuleInfo[];
+  agentsLoading: boolean;
+  rulesLoading: boolean;
   onReadFile: (file: string) => void;
   onWriteFile: (file: string, content: string) => void;
   onToggleAgent: (agentId: string, enabled: boolean) => void;
+  onListAgents: () => void;
+  onListRules: () => void;
+  onToggleRule: (ruleId: string, enabled: boolean) => void;
 }
 
-export function SetupWizard({ projectConfig, enabledAgents, onReadFile, onWriteFile, onToggleAgent }: SetupWizardProps) {
+export function SetupWizard({
+  projectConfig,
+  availableAgents,
+  cursorRules,
+  agentsLoading,
+  rulesLoading,
+  onReadFile,
+  onWriteFile,
+  onToggleAgent,
+  onListAgents,
+  onListRules,
+  onToggleRule,
+}: SetupWizardProps) {
   const [activeTab, setActiveTab] = useState('overview');
 
   const configItems = [
@@ -131,8 +150,8 @@ export function SetupWizard({ projectConfig, enabledAgents, onReadFile, onWriteF
               <div className="space-y-4">
                 <h3 className="font-semibold">2. Enable Specialist Agents</h3>
                 <p className="text-sm text-muted-foreground">
-                  Choose which specialist agents to use for code review and quality checks:
-                  React/TypeScript expert, Accessibility expert, and QoL/UX expert.
+                  Choose which specialist agents to use for code review and quality checks.
+                  Agents from ~/.claude/agents/ are available globally.
                 </p>
                 <Button
                   variant="outline"
@@ -179,13 +198,20 @@ export function SetupWizard({ projectConfig, enabledAgents, onReadFile, onWriteF
 
         <TabsContent value="specialists">
           <SpecialistAgentsConfig
-            enabledAgents={enabledAgents}
+            availableAgents={availableAgents}
+            agentsLoading={agentsLoading}
+            onListAgents={onListAgents}
             onToggleAgent={onToggleAgent}
           />
         </TabsContent>
 
         <TabsContent value="cursor">
-          <CursorRulesConfig onReadFile={onReadFile} onWriteFile={onWriteFile} />
+          <CursorRulesConfig
+            cursorRules={cursorRules}
+            rulesLoading={rulesLoading}
+            onListRules={onListRules}
+            onToggleRule={onToggleRule}
+          />
         </TabsContent>
 
         <TabsContent value="prompts">

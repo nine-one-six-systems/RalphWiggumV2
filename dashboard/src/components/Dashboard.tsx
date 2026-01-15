@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { LoopStatus } from './LoopStatus';
 import { TaskList } from './TaskList';
@@ -7,6 +7,7 @@ import { ContextMeter } from './ContextMeter';
 import { GitHistory } from './GitHistory';
 import { LoopControls } from './LoopControls';
 import { SetupWizard } from './setup/SetupWizard';
+import { OnboardingWizard } from './setup/OnboardingWizard';
 import { PlanGenerator } from './PlanGenerator';
 import { PRDGenerator } from './PRDGenerator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -39,13 +40,56 @@ export function Dashboard() {
     prdOutput,
     prdComplete,
     prdError,
+    projectScan,
+    scanLoading,
+    availableAgents,
+    cursorRules,
+    agentsLoading,
+    rulesLoading,
     sendCommand,
     clearLogs,
     clearPlanOutput,
     clearPrdOutput,
+    scanProject,
+    listAgents,
+    listRules,
   } = useWebSocket();
 
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingComplete, setOnboardingComplete] = useState(false);
+
+  // Check if we should show onboarding (AGENTS.md not configured)
+  useEffect(() => {
+    if (projectConfig && !onboardingComplete) {
+      // Show onboarding if AGENTS.md doesn't exist or isn't configured
+      const needsOnboarding = !projectConfig.hasAgentsMd;
+      setShowOnboarding(needsOnboarding);
+    }
+  }, [projectConfig, onboardingComplete]);
+
+  const handleOnboardingComplete = () => {
+    setShowOnboarding(false);
+    setOnboardingComplete(true);
+  };
+
+  const handleSaveAgentsMd = (content: string) => {
+    sendCommand({ type: 'config:write', payload: { file: 'AGENTS.md', content } });
+  };
+
+  // Show onboarding wizard if needed
+  if (showOnboarding) {
+    return (
+      <OnboardingWizard
+        projectScan={projectScan}
+        scanLoading={scanLoading}
+        onScanProject={scanProject}
+        onSaveAgentsMd={handleSaveAgentsMd}
+        onComplete={handleOnboardingComplete}
+        onSkip={handleOnboardingComplete}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -210,12 +254,21 @@ export function Dashboard() {
             <SetupWizard
               projectConfig={projectConfig}
               enabledAgents={enabledAgents}
+              availableAgents={availableAgents}
+              cursorRules={cursorRules}
+              agentsLoading={agentsLoading}
+              rulesLoading={rulesLoading}
               onReadFile={(file) => sendCommand({ type: 'config:read', payload: { file } })}
               onWriteFile={(file, content) =>
                 sendCommand({ type: 'config:write', payload: { file, content } })
               }
               onToggleAgent={(agentId, enabled) =>
                 sendCommand({ type: 'agents:toggle', payload: { agentId, enabled } })
+              }
+              onListAgents={listAgents}
+              onListRules={listRules}
+              onToggleRule={(ruleId, enabled) =>
+                sendCommand({ type: 'rules:toggle', payload: { ruleId, enabled } })
               }
             />
           </TabsContent>

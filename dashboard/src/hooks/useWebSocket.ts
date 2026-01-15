@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { ServerMessage, ClientCommand, LoopStatus, TasksState, GitStatus, LogEntry, ProjectConfig, PlanGeneratorStatus, PRDGeneratorStatus } from '@/types';
+import type { ServerMessage, ClientCommand, LoopStatus, TasksState, GitStatus, LogEntry, ProjectConfig, PlanGeneratorStatus, PRDGeneratorStatus, ProjectScan, AgentInfo, CursorRuleInfo } from '@/types';
 
 interface UseWebSocketReturn {
   connected: boolean;
@@ -19,10 +19,21 @@ interface UseWebSocketReturn {
   prdOutput: string;
   prdComplete: { prd: string; audience: string } | null;
   prdError: string | null;
+  // Project scanning state
+  projectScan: ProjectScan | null;
+  scanLoading: boolean;
+  // Agent and rules state
+  availableAgents: AgentInfo[];
+  cursorRules: CursorRuleInfo[];
+  agentsLoading: boolean;
+  rulesLoading: boolean;
   sendCommand: (command: ClientCommand) => void;
   clearLogs: () => void;
   clearPlanOutput: () => void;
   clearPrdOutput: () => void;
+  scanProject: () => void;
+  listAgents: () => void;
+  listRules: () => void;
 }
 
 const DEFAULT_LOOP_STATUS: LoopStatus = {
@@ -75,6 +86,14 @@ export function useWebSocket(url: string = 'ws://localhost:3001/ws'): UseWebSock
   const [prdOutput, setPrdOutput] = useState('');
   const [prdComplete, setPrdComplete] = useState<{ prd: string; audience: string } | null>(null);
   const [prdError, setPrdError] = useState<string | null>(null);
+  // Project scanning state
+  const [projectScan, setProjectScan] = useState<ProjectScan | null>(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  // Agent and rules state
+  const [availableAgents, setAvailableAgents] = useState<AgentInfo[]>([]);
+  const [cursorRules, setCursorRules] = useState<CursorRuleInfo[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+  const [rulesLoading, setRulesLoading] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -173,6 +192,21 @@ export function useWebSocket(url: string = 'ws://localhost:3001/ws'): UseWebSock
           case 'prd:error':
             setPrdError(message.payload.error);
             break;
+          // Project scanning messages
+          case 'project:scan-result':
+            setProjectScan(message.payload);
+            setScanLoading(false);
+            break;
+          // Agent and rules messages
+          case 'agents:list-result':
+            setAvailableAgents(message.payload);
+            setAgentsLoading(false);
+            break;
+          case 'rules:list-result':
+          case 'rules:update':
+            setCursorRules(message.payload);
+            setRulesLoading(false);
+            break;
         }
       } catch {
         console.error('Failed to parse WebSocket message');
@@ -217,6 +251,27 @@ export function useWebSocket(url: string = 'ws://localhost:3001/ws'): UseWebSock
     setPrdError(null);
   }, []);
 
+  const scanProject = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      setScanLoading(true);
+      wsRef.current.send(JSON.stringify({ type: 'project:scan' }));
+    }
+  }, []);
+
+  const listAgents = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      setAgentsLoading(true);
+      wsRef.current.send(JSON.stringify({ type: 'agents:list' }));
+    }
+  }, []);
+
+  const listRules = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      setRulesLoading(true);
+      wsRef.current.send(JSON.stringify({ type: 'rules:list' }));
+    }
+  }, []);
+
   return {
     connected,
     loopStatus,
@@ -233,9 +288,18 @@ export function useWebSocket(url: string = 'ws://localhost:3001/ws'): UseWebSock
     prdOutput,
     prdComplete,
     prdError,
+    projectScan,
+    scanLoading,
+    availableAgents,
+    cursorRules,
+    agentsLoading,
+    rulesLoading,
     sendCommand,
     clearLogs,
     clearPlanOutput,
     clearPrdOutput,
+    scanProject,
+    listAgents,
+    listRules,
   };
 }

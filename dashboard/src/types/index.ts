@@ -95,6 +95,26 @@ export const SPECIALIST_AGENTS: SpecialistAgent[] = [
   },
 ];
 
+// Dynamic agent info from file system
+export interface AgentInfo {
+  id: string;
+  name: string;
+  description: string;
+  source: 'global' | 'project';
+  enabled: boolean;
+  filePath: string;
+}
+
+// Cursor rule info from .cursor/rules/
+export interface CursorRuleInfo {
+  id: string;
+  name: string;
+  description: string;
+  globs: string[];
+  enabled: boolean;
+  filePath: string;
+}
+
 // WebSocket message types
 export interface WSMessage {
   type: string;
@@ -198,6 +218,9 @@ export type ServerMessage =
   | GitMessage
   | ConfigMessage
   | AgentsUpdateMessage
+  | AgentsListResultMessage
+  | RulesListResultMessage
+  | RulesUpdateMessage
   | PlanStatusMessage
   | PlanOutputMessage
   | PlanLogMessage
@@ -206,7 +229,8 @@ export type ServerMessage =
   | PRDStatusMessage
   | PRDOutputMessage
   | PRDCompleteMessage
-  | PRDErrorMessage;
+  | PRDErrorMessage
+  | ProjectScanMessage;
 
 // Client commands
 export interface StartLoopCommand {
@@ -276,14 +300,94 @@ export interface CancelPRDCommand {
   type: 'prd:cancel';
 }
 
+// Project scanning types
+export interface ProjectScan {
+  projectName: string;
+  packageManager: 'npm' | 'yarn' | 'pnpm' | 'bun' | null;
+  framework: string | null;
+  language: 'typescript' | 'javascript' | 'python' | 'go' | 'mixed' | 'unknown';
+  detectedCommands: {
+    build?: string;
+    dev?: string;
+    test?: string;
+    lint?: string;
+    typecheck?: string;
+  };
+  existingDocs: Array<{
+    path: string;
+    name: string;
+    size: number;
+  }>;
+  hasRalphConfig: {
+    agentsMd: boolean;
+    claudeMd: boolean;
+    implementationPlan: boolean;
+    loopSh: boolean;
+    specsDir: boolean;
+    cursorRules: boolean;
+  };
+  structure: Array<{
+    path: string;
+    type: 'dir' | 'file';
+  }>;
+}
+
+export interface ProjectScanMessage extends WSMessage {
+  type: 'project:scan-result';
+  payload: ProjectScan;
+}
+
+export interface ScanProjectCommand {
+  type: 'project:scan';
+}
+
+// Agent list messages
+export interface AgentsListResultMessage extends WSMessage {
+  type: 'agents:list-result';
+  payload: AgentInfo[];
+}
+
+// Cursor rules messages
+export interface RulesListResultMessage extends WSMessage {
+  type: 'rules:list-result';
+  payload: CursorRuleInfo[];
+}
+
+export interface RulesUpdateMessage extends WSMessage {
+  type: 'rules:update';
+  payload: CursorRuleInfo[];
+}
+
+// Agent list command
+export interface ListAgentsCommand {
+  type: 'agents:list';
+}
+
+// Cursor rules commands
+export interface ListRulesCommand {
+  type: 'rules:list';
+}
+
+export interface ToggleRuleCommand {
+  type: 'rules:toggle';
+  payload: {
+    ruleId: string;
+    enabled: boolean;
+  };
+}
+
 export type ClientCommand =
   | StartLoopCommand
   | StopLoopCommand
   | ReadConfigCommand
   | WriteConfigCommand
   | ToggleAgentCommand
+  | ListAgentsCommand
+  | ListRulesCommand
+  | ToggleRuleCommand
   | GeneratePlanCommand
   | CancelPlanCommand
   | ClearPlanOutputCommand
   | GeneratePRDCommand
-  | CancelPRDCommand;
+  | CancelPRDCommand
+  | ScanProjectCommand;

@@ -9,6 +9,7 @@ import { LoopController } from './loopController.js';
 import { ProjectConfigManager } from './projectConfig.js';
 import { PlanGenerator } from './planGenerator.js';
 import { PRDGenerator } from './prdGenerator.js';
+import { ProjectScanner } from './projectScanner.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,6 +30,7 @@ const fileWatcher = new FileWatcher(PROJECT_PATH);
 const loopController = new LoopController(PROJECT_PATH);
 const planGenerator = new PlanGenerator(PROJECT_PATH);
 const prdGenerator = new PRDGenerator(PROJECT_PATH);
+const projectScanner = new ProjectScanner(PROJECT_PATH);
 
 // Track connected clients
 const clients = new Set<WebSocket>();
@@ -90,6 +92,22 @@ wss.on('connection', (ws) => {
           break;
         case 'prd:cancel':
           prdGenerator.cancel();
+          break;
+        case 'project:scan':
+          const scanResult = await projectScanner.scan();
+          ws.send(JSON.stringify({ type: 'project:scan-result', payload: scanResult }));
+          break;
+        case 'agents:list':
+          const agents = await projectConfig.listAvailableAgents();
+          ws.send(JSON.stringify({ type: 'agents:list-result', payload: agents }));
+          break;
+        case 'rules:list':
+          const rules = await projectConfig.listCursorRulesDetailed();
+          ws.send(JSON.stringify({ type: 'rules:list-result', payload: rules }));
+          break;
+        case 'rules:toggle':
+          const updatedRules = await projectConfig.toggleCursorRule(message.payload.ruleId, message.payload.enabled);
+          broadcast({ type: 'rules:update', payload: updatedRules });
           break;
       }
     } catch (err) {

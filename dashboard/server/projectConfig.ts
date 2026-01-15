@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
-import type { ProjectConfig } from '../src/types';
+import os from 'os';
+import type { ProjectConfig, AgentInfo, CursorRuleInfo } from '../src/types';
 
 const CONFIG_FILES = {
   'AGENTS.md': 'AGENTS.md',
@@ -208,5 +209,181 @@ export class ProjectConfigManager {
     content = content.replace(delegatePattern, `<!-- DISABLED: ${agentId}\n$1-->\n`);
 
     return content;
+  }
+
+  // List all available agents from global (~/.claude/agents/) and project (.claude/agents/)
+  async listAvailableAgents(): Promise<AgentInfo[]> {
+    const agents: AgentInfo[] = [];
+
+    // Global agents directory
+    const globalAgentsDir = path.join(os.homedir(), '.claude', 'agents');
+    // Project agents directory
+    const projectAgentsDir = path.join(this.projectPath, '.claude', 'agents');
+
+    // Parse agent file to extract name and description from YAML frontmatter
+    const parseAgentFile = async (filePath: string, source: 'global' | 'project'): Promise<AgentInfo | null> => {
+      try {
+        const content = await fs.readFile(filePath, 'utf-8');
+        const filename = path.basename(filePath, '.md');
+
+        // Parse YAML frontmatter
+        const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+        if (!frontmatterMatch) {
+          return null;
+        }
+
+        const frontmatter = frontmatterMatch[1];
+
+        // Extract name and description
+        const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
+        const descMatch = frontmatter.match(/^description:\s*(.+)$/m);
+
+        const id = nameMatch ? nameMatch[1].trim() : filename;
+        const description = descMatch ? descMatch[1].trim() : '';
+
+        // Check if agent is enabled (appears in CLAUDE.md)
+        const enabled = this.enabledAgents.includes(id);
+
+        return {
+          id,
+          name: id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+          description,
+          source,
+          enabled,
+          filePath,
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    // Scan global agents
+    try {
+      const globalFiles = await fs.readdir(globalAgentsDir);
+      for (const file of globalFiles) {
+        if (file.endsWith('.md')) {
+          const agent = await parseAgentFile(path.join(globalAgentsDir, file), 'global');
+          if (agent) {
+            agents.push(agent);
+          }
+        }
+      }
+    } catch {
+      // Global agents directory doesn't exist
+    }
+
+    // Scan project agents
+    try {
+      const projectFiles = await fs.readdir(projectAgentsDir);
+      for (const file of projectFiles) {
+        if (file.endsWith('.md')) {
+          const agent = await parseAgentFile(path.join(projectAgentsDir, file), 'project');
+          if (agent) {
+            // Don't add duplicates (project overrides global)
+            const existingIndex = agents.findIndex(a => a.id === agent.id);
+            if (existingIndex >= 0) {
+              agents[existingIndex] = agent;
+            } else {
+              agents.push(agent);
+            }
+          }
+        }
+      }
+    } catch {
+      // Project agents directory doesn't exist
+    }
+
+    return agents;
+  }
+
+  // List cursor rules with detailed info from frontmatter
+  async listCursorRulesDetailed(): Promise<CursorRuleInfo[]> {
+    const rules: CursorRuleInfo[] = [];
+    const rulesDir = path.join(this.projectPath, '.cursor', 'rules');
+
+    try {
+      const files = await fs.readdir(rulesDir);
+
+      for (const file of files) {
+        // Include both .mdc (enabled) and .mdc.disabled (disabled) files
+        const isDisabled = file.endsWith('.mdc.disabled');
+        const isMdc = file.endsWith('.mdc') || isDisabled;
+
+        if (!isMdc) continue;
+
+        const filePath = path.join(rulesDir, file);
+
+        try {
+          const content = await fs.readFile(filePath, 'utf-8');
+
+          // Parse MDC frontmatter
+          const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+
+          let description = '';
+          let globs: string[] = [];
+
+          if (frontmatterMatch) {
+            const frontmatter = frontmatterMatch[1];
+
+            // Extract description
+            const descMatch = frontmatter.match(/^description:\s*(.+)$/m);
+            if (descMatch) {
+              description = descMatch[1].trim();
+            }
+
+            // Extract globs (can be array or single value)
+            const globsMatch = frontmatter.match(/^globs:\s*\[([^\]]+)\]/m);
+            if (globsMatch) {
+              globs = globsMatch[1]
+                .split(',')
+                .map(g => g.trim().replace(/['"]/g, ''));
+            }
+          }
+
+          // Get the base filename without .disabled extension
+          const baseFile = isDisabled ? file.replace('.disabled', '') : file;
+          const id = baseFile.replace('.mdc', '');
+
+          rules.push({
+            id,
+            name: baseFile,
+            description,
+            globs,
+            enabled: !isDisabled,
+            filePath,
+          });
+        } catch {
+          // Skip files that can't be read
+        }
+      }
+    } catch {
+      // Rules directory doesn't exist
+    }
+
+    // Sort by filename
+    return rules.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // Toggle cursor rule by renaming file (.mdc ↔ .mdc.disabled)
+  async toggleCursorRule(ruleId: string, enabled: boolean): Promise<CursorRuleInfo[]> {
+    const rulesDir = path.join(this.projectPath, '.cursor', 'rules');
+
+    const enabledPath = path.join(rulesDir, `${ruleId}.mdc`);
+    const disabledPath = path.join(rulesDir, `${ruleId}.mdc.disabled`);
+
+    try {
+      if (enabled) {
+        // Enable: rename .mdc.disabled to .mdc
+        await fs.rename(disabledPath, enabledPath);
+      } else {
+        // Disable: rename .mdc to .mdc.disabled
+        await fs.rename(enabledPath, disabledPath);
+      }
+    } catch (err) {
+      console.error('Error toggling cursor rule:', err);
+      throw err;
+    }
+
+    return this.listCursorRulesDetailed();
   }
 }
