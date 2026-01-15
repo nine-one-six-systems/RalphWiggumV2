@@ -218,6 +218,7 @@ export function Dashboard() {
               previewDoc={configPreviewDoc}
               isLoadingPreview={configPreviewLoading}
               onClosePreview={closeConfigPreview}
+              onRefresh={() => sendCommand({ type: 'config:refresh' })}
             />
 
             {/* Status Grid */}

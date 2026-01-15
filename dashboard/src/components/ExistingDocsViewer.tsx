@@ -13,6 +13,7 @@ import {
   X,
   Copy,
   Check,
+  RefreshCw,
 } from 'lucide-react';
 
 interface DocFile {
@@ -29,6 +30,7 @@ interface ExistingDocsViewerProps {
   previewDoc: { file: string; content: string } | null;
   isLoadingPreview: boolean;
   onClosePreview: () => void;
+  onRefresh?: () => void;
 }
 
 export function ExistingDocsViewer({
@@ -38,6 +40,7 @@ export function ExistingDocsViewer({
   previewDoc,
   isLoadingPreview,
   onClosePreview,
+  onRefresh,
 }: ExistingDocsViewerProps) {
   const [copied, setCopied] = useState(false);
 
@@ -96,9 +99,22 @@ export function ExistingDocsViewer({
               <FileText className="h-5 w-5" />
               Current Documents
             </CardTitle>
-            <Badge variant="secondary">
-              {existingCount}/{docs.length} ready
-            </Badge>
+            <div className="flex items-center gap-2">
+              {onRefresh && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onRefresh}
+                  className="h-7 w-7 p-0"
+                  title="Refresh document status"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              )}
+              <Badge variant="secondary">
+                {existingCount}/{docs.length} ready
+              </Badge>
+            </div>
           </div>
         </CardHeader>
         <CardContent>

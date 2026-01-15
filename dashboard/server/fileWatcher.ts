@@ -9,6 +9,8 @@ export class FileWatcher extends EventEmitter {
   private projectPath: string;
   private watcher: chokidar.FSWatcher | null = null;
   private logWatcher: chokidar.FSWatcher | null = null;
+  private prdWatcher: chokidar.FSWatcher | null = null;
+  private audienceWatcher: chokidar.FSWatcher | null = null;
   private tasks: TasksState = { tasks: [], completed: 0, total: 0 };
   private gitStatus: GitStatus = { branch: 'main', uncommittedCount: 0, commits: [] };
   private lastLogPosition = 0;
@@ -39,6 +41,26 @@ export class FileWatcher extends EventEmitter {
     this.logWatcher.on('add', () => this.tailLog());
     this.logWatcher.on('change', () => this.tailLog());
 
+    // Watch PRD.md
+    const prdPath = path.join(this.projectPath, 'PRD.md');
+    this.prdWatcher = chokidar.watch(prdPath, {
+      persistent: true,
+      ignoreInitial: false,
+    });
+
+    this.prdWatcher.on('add', () => this.emit('config:refresh'));
+    this.prdWatcher.on('change', () => this.emit('config:refresh'));
+
+    // Watch AUDIENCE_JTBD.md
+    const audiencePath = path.join(this.projectPath, 'AUDIENCE_JTBD.md');
+    this.audienceWatcher = chokidar.watch(audiencePath, {
+      persistent: true,
+      ignoreInitial: false,
+    });
+
+    this.audienceWatcher.on('add', () => this.emit('config:refresh'));
+    this.audienceWatcher.on('change', () => this.emit('config:refresh'));
+
     // Initial git status and periodic refresh
     this.updateGitStatus();
     setInterval(() => this.updateGitStatus(), 10000);
@@ -47,6 +69,8 @@ export class FileWatcher extends EventEmitter {
   stop() {
     this.watcher?.close();
     this.logWatcher?.close();
+    this.prdWatcher?.close();
+    this.audienceWatcher?.close();
   }
 
   getTasks(): TasksState {

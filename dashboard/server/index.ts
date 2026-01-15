@@ -53,8 +53,8 @@ async function startServer() {
   const projectConfig = new ProjectConfigManager(TARGET_PROJECT_PATH, RALPH_PATH);
   const fileWatcher = new FileWatcher(TARGET_PROJECT_PATH);
   const loopController = new LoopController(TARGET_PROJECT_PATH, RALPH_PATH);
-  const planGenerator = new PlanGenerator(TARGET_PROJECT_PATH);
-  const prdGenerator = new PRDGenerator(TARGET_PROJECT_PATH);
+  const planGenerator = new PlanGenerator(TARGET_PROJECT_PATH, RALPH_PATH);
+  const prdGenerator = new PRDGenerator(TARGET_PROJECT_PATH, RALPH_PATH);
   const projectScanner = new ProjectScanner(TARGET_PROJECT_PATH);
 
   // Track connected clients
@@ -101,6 +101,20 @@ async function startServer() {
           case 'config:write':
             await projectConfig.writeFile(message.payload.file, message.payload.content);
             ws.send(JSON.stringify({ type: 'config:saved', payload: { file: message.payload.file } }));
+            // Refresh config if PRD.md or AUDIENCE_JTBD.md was written
+            if (message.payload.file === 'PRD.md' || message.payload.file === 'AUDIENCE_JTBD.md') {
+              const updatedConfig = await projectConfig.refresh();
+              broadcast({ type: 'config:update', payload: updatedConfig });
+            }
+            break;
+          case 'config:refresh':
+            try {
+              const updatedConfig = await projectConfig.refresh();
+              broadcast({ type: 'config:update', payload: updatedConfig });
+              ws.send(JSON.stringify({ type: 'config:refreshed' }));
+            } catch (err) {
+              ws.send(JSON.stringify({ type: 'config:error', payload: { error: 'Failed to refresh config' } }));
+            }
             break;
           case 'agents:toggle':
             await projectConfig.toggleAgent(message.payload.agentId, message.payload.enabled);
@@ -108,24 +122,32 @@ async function startServer() {
             broadcast({ type: 'agents:update', payload: { enabledAgents } });
             break;
           case 'plan:generate':
-            // Read PRD context if requested
-            let prdContext = '';
-            if (message.payload.usePrdContext) {
-              try {
-                const prdContent = await projectConfig.readFile('PRD.md');
-                const audienceContent = await projectConfig.readFile('AUDIENCE_JTBD.md');
-                prdContext = `
+            try {
+              // Read PRD context if requested
+              let prdContext = '';
+              if (message.payload.usePrdContext) {
+                try {
+                  const prdContent = await projectConfig.readFile('PRD.md');
+                  const audienceContent = await projectConfig.readFile('AUDIENCE_JTBD.md');
+                  prdContext = `
 ## Context: PRD.md
 ${prdContent}
 
 ## Context: AUDIENCE_JTBD.md
 ${audienceContent}
 `;
-              } catch (err) {
-                console.warn('Could not read PRD files:', err);
+                } catch (err) {
+                  console.warn('Could not read PRD files:', err);
+                }
               }
+              await planGenerator.generatePlan({ ...message.payload, prdContext });
+            } catch (err) {
+              console.error('Error generating plan:', err);
+              ws.send(JSON.stringify({ 
+                type: 'plan:error', 
+                payload: { error: err instanceof Error ? err.message : 'Failed to start plan generation' } 
+              }));
             }
-            planGenerator.generatePlan({ ...message.payload, prdContext });
             break;
           case 'plan:cancel':
             planGenerator.cancel();
@@ -229,6 +251,16 @@ ${audienceContent}
 
   fileWatcher.on('git', (status) => {
     broadcast({ type: 'git:update', payload: status });
+  });
+
+  // File watcher config refresh events (when PRD.md or AUDIENCE_JTBD.md change)
+  fileWatcher.on('config:refresh', async () => {
+    try {
+      const updatedConfig = await projectConfig.refresh();
+      broadcast({ type: 'config:update', payload: updatedConfig });
+    } catch (err) {
+      console.error('Error refreshing config:', err);
+    }
   });
 
   // Loop controller events

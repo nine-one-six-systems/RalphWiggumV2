@@ -20,6 +20,7 @@ const PROMPT_FILES: Record<PlanMode, string> = {
 
 export class PlanGenerator extends EventEmitter {
   private projectPath: string;
+  private ralphPath: string;
   private process: ChildProcess | null = null;
   private status: PlanGeneratorStatus = {
     generating: false,
@@ -29,9 +30,10 @@ export class PlanGenerator extends EventEmitter {
   private accumulatedOutput: string = '';
   private accumulatedPlan: string = '';
 
-  constructor(projectPath: string) {
+  constructor(projectPath: string, ralphPath?: string) {
     super();
     this.projectPath = projectPath;
+    this.ralphPath = ralphPath || projectPath;
   }
 
   getStatus(): PlanGeneratorStatus {
@@ -63,13 +65,22 @@ export class PlanGenerator extends EventEmitter {
       let basePrompt: string;
 
       try {
+        // Try ralphPath first (where prompt files are located)
         basePrompt = await fs.readFile(
-          path.join(this.projectPath, promptFile),
+          path.join(this.ralphPath, promptFile),
           'utf-8'
         );
       } catch {
-        // Use default prompt if file doesn't exist
-        basePrompt = this.getDefaultPrompt(options.mode);
+        try {
+          // Fallback to projectPath
+          basePrompt = await fs.readFile(
+            path.join(this.projectPath, promptFile),
+            'utf-8'
+          );
+        } catch {
+          // Use default prompt if file doesn't exist
+          basePrompt = this.getDefaultPrompt(options.mode);
+        }
       }
 
       // Build the full goal with optional PRD context
@@ -107,6 +118,9 @@ export class PlanGenerator extends EventEmitter {
       }
 
       // Spawn Claude CLI
+      // IMPORTANT: cwd is set to projectPath (parent directory) so Claude runs in the correct location
+      // and any files it creates/writes will be in the parent directory, not ralph-wiggum-v2
+      console.log(`Starting plan generation in directory: ${this.projectPath}`);
       this.process = spawn('claude', claudeArgs, {
         cwd: this.projectPath,
         stdio: ['pipe', 'pipe', 'pipe'],

@@ -69,9 +69,12 @@ export function PlanGenerator({
   const [usePrdDocs, setUsePrdDocs] = useState(false);
 
   const handleGenerate = () => {
-    if (!goal.trim()) return;
+    // Allow empty goal only if using PRD documents as context
+    if (!goal.trim() && !usePrdDocs) return;
+    if (mode === 'plan-work' && !workScope.trim()) return;
+    
     onGeneratePlan({
-      goal: goal.trim(),
+      goal: goal.trim() || 'Analyze the codebase based on PRD and AUDIENCE_JTBD documents',
       mode,
       workScope: mode === 'plan-work' ? workScope.trim() : undefined,
       usePrdContext: usePrdDocs,
@@ -182,16 +185,24 @@ export function PlanGenerator({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-3">
-            {!isGenerating ? (
-              <Button
-                onClick={handleGenerate}
-                disabled={(!goal.trim() && !usePrdDocs) || (mode === 'plan-work' && !workScope.trim())}
-                className="gap-2"
-              >
-                <Play className="h-4 w-4" />
-                Generate Plan
-              </Button>
-            ) : (
+            <Button
+              onClick={handleGenerate}
+              disabled={isGenerating || (!goal.trim() && !usePrdDocs) || (mode === 'plan-work' && !workScope.trim())}
+              className="gap-2"
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4" />
+                  Generate Plan
+                </>
+              )}
+            </Button>
+            {isGenerating && (
               <Button variant="destructive" onClick={onCancelPlan} className="gap-2">
                 <Square className="h-4 w-4" />
                 Cancel

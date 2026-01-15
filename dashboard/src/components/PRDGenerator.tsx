@@ -372,7 +372,9 @@ export function PRDGenerator({
           <CardContent className="space-y-4">
             {prdError && (
               <div className="rounded-lg bg-destructive/10 p-4 text-destructive">
-                {prdError}
+                <pre className="whitespace-pre-wrap font-mono text-sm">
+                  {prdError}
+                </pre>
               </div>
             )}
 

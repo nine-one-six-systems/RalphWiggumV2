@@ -20,16 +20,19 @@ interface PRDGeneratorOptions {
 
 export class PRDGenerator extends EventEmitter {
   private projectPath: string;
+  private ralphPath: string;
   private process: ChildProcess | null = null;
   private status: PRDGeneratorStatus = {
     generating: false,
     startedAt: null,
   };
   private accumulatedOutput: string = '';
+  private stderrOutput: string = '';
 
-  constructor(projectPath: string) {
+  constructor(projectPath: string, ralphPath?: string) {
     super();
     this.projectPath = projectPath;
+    this.ralphPath = ralphPath || projectPath;
   }
 
   getStatus(): PRDGeneratorStatus {
@@ -46,6 +49,7 @@ export class PRDGenerator extends EventEmitter {
       startedAt: new Date(),
     };
     this.accumulatedOutput = '';
+    this.stderrOutput = '';
     this.emit('status', this.status);
 
     try {
@@ -53,13 +57,22 @@ export class PRDGenerator extends EventEmitter {
       let basePrompt: string;
 
       try {
+        // Try ralphPath first (where prompt files are located)
         basePrompt = await fs.readFile(
-          path.join(this.projectPath, 'PROMPT_prd.md'),
+          path.join(this.ralphPath, 'PROMPT_prd.md'),
           'utf-8'
         );
       } catch {
-        // Use default prompt if file doesn't exist
-        basePrompt = this.getDefaultPrompt();
+        try {
+          // Fallback to projectPath
+          basePrompt = await fs.readFile(
+            path.join(this.projectPath, 'PROMPT_prd.md'),
+            'utf-8'
+          );
+        } catch {
+          // Use default prompt if file doesn't exist
+          basePrompt = this.getDefaultPrompt();
+        }
       }
 
       // Replace placeholders with form values
@@ -116,6 +129,14 @@ export class PRDGenerator extends EventEmitter {
         claudeArgs.push('--model', 'opus');
       }
 
+      // Log command details for debugging
+      this.emit('log', `Executing: claude ${claudeArgs.join(' ')}`);
+      this.emit('log', `Working directory: ${this.projectPath}`);
+      this.emit('log', `Prompt size: ${fullPrompt.length} characters`);
+      if (options.docsOnly) {
+        this.emit('log', `Mode: docs-only with ${options.contextDocs?.length || 0} context documents`);
+      }
+
       // Spawn Claude CLI
       this.process = spawn('claude', claudeArgs, {
         cwd: this.projectPath,
@@ -139,10 +160,11 @@ export class PRDGenerator extends EventEmitter {
         });
       }
 
-      // Handle stderr
+      // Handle stderr - accumulate for final error message
       this.process.stderr?.on('data', (data) => {
         const text = data.toString();
-        this.emit('error', text);
+        this.stderrOutput += text;
+        this.emit('log', `[stderr] ${text}`);
       });
 
       // Handle process close
@@ -158,7 +180,20 @@ export class PRDGenerator extends EventEmitter {
           const parsed = this.parseDocuments(this.accumulatedOutput);
           this.emit('complete', parsed);
         } else {
-          this.emit('error', `Process exited with code ${code}`);
+          // Include stderr details in the error message for better debugging
+          const errorDetails = this.stderrOutput.trim();
+          let errorMessage: string;
+
+          if (errorDetails) {
+            errorMessage = `Process exited with code ${code}\n\nError details:\n${errorDetails}`;
+          } else if (this.accumulatedOutput.trim()) {
+            // Sometimes errors appear in stdout
+            errorMessage = `Process exited with code ${code}\n\nOutput received:\n${this.accumulatedOutput.substring(0, 500)}${this.accumulatedOutput.length > 500 ? '...' : ''}`;
+          } else {
+            errorMessage = `Process exited with code ${code}\n\nNo error details available. Please check:\n• Claude CLI is installed and working (run: claude --version)\n• You are authenticated (run: claude)\n• The --dangerously-skip-permissions flag is supported`;
+          }
+
+          this.emit('error', errorMessage);
         }
         this.emit('status', this.status);
       });
